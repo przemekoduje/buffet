@@ -137,3 +137,15 @@
 - **Automatyczna synchronizacja:**
   - Wszystkie pozycje portfela Paper Trading, konfiguracja Money Management, historia zleceń oraz watchlisty użytkownika zapisują się w kolekcji Firestore `buffet_users/{uid}`.
   - Po zalogowaniu na innym komputerze lub w innej przeglądarce dane użytkownika są natychmiast odtwarzane z chmury Firebase.
+
+### 4.8. Migracja na Dedykowany Projekt Firebase `buffet-3620c`
+- **Wykrycie i rejestracja aplikacji Web:**
+  - Zidentyfikowano dedykowany projekt Firebase: `buffet` (`buffet-3620c`).
+  - Zarejestrowano w projekcie nową aplikację webową `buffet-web` (App ID: `1:940422840205:web:809bebc17f1dcfdb2387c4`).
+  - Utworzono produkcyjną bazę Firestore Native w regionie `europe-west1` (`(default)`).
+- **Poświadczenia i konfiguracja:**
+  - Wygenerowano nowy klucz serwisowy Admin SDK dla `firebase-adminsdk-fbsvc@buffet-3620c.iam.gserviceaccount.com` i umieszczono w `backend/firebase-adminsdk.json` (zabezpieczony w `.gitignore`).
+  - Zaktualizowano `frontend/.env` danymi nowego projektu `buffet-3620c`.
+- **Weryfikacja:**
+  - Potwierdzono pomyślny odczyt i zapis danych w kolekcji `buffet_users` w nowym projekcie `buffet-3620c`.
+  - Serwery backend i frontend zrestartowane i aktywne.
