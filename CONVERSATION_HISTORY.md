@@ -169,3 +169,16 @@
   - Wysuwany panel boczny (Drawer) z awatarem i statusem Guru Inwestycyjnego ("Warren Buffett AI"), minimalistyczną typografią i możliwością rozszerzenia na pełny ekran.
   - Szybkie podpowiedzi (Starter Pills), akordeon na dane zewnętrzne z raportów/artykułów oraz interaktywne przyciski akcji do natychmiastowego przejścia do wykresów i zleceń.
   - Przycisk w nagłówku aplikacji (`Header.jsx`) z pulsującym wskaźnikiem oraz pływający przycisk FAB w prawym dolnym rogu ekranu (`App.jsx`).
+
+### 4.11. Rozszerzenie Encyklopedycznej Bazy Wiedzy Agenta Chat AI i Optymalizacja LLM
+- **Kompleksowa Encyklopedia Wiedzy Aplikacji (`backend/app/services/chat_agent.py`):**
+  - Wprowadzono do promptu systemowego agenta pełną dokumentację każdego mechanizmu aplikacji BUFFET:
+    - Dokładne wzory wyceny: kalkulacja Znormalizowanego Zysku Właścicielskiego (*Owner Earnings*), 10-letni dynamiczny DCF (wzrost lat 1-5 z ograniczeniem mega-cap i instytucji finansowych, fade-down lat 6-10, model Gordona z $g=3.0\%$, stałe stopy dyskontowe Buffetta 9.0%-10.5%, korekta o dług netto i specjalna zasada 35% floatu dla spółek ubezpieczeniowych).
+    - Punktacja *Buffett Score (0-100)*: dokładna waga i progi punktowe dla 6 kryteriów (ROIC max 20 pkt, ROE max 15 pkt, Pricing Power / Marża Brutto max 15 pkt, Dług Netto / FCF max 20 pkt, Margines Bezpieczeństwa max 20 pkt, CAGR przychodów max 10 pkt) oraz warunki rekomendacji (`STRONG_BUY`, `BUY`, `HOLD`, `AVOID`).
+    - Audyt ryzyka wg Reguły nr 1 (kryteria i poziomy `LOW`, `MODERATE`, `HIGH`).
+    - Zasady dyscypliny kapitałowej Money Management ($100 000 wirtualnego kapitału, pozycja 10%, max alokacja 20-25%, rezerwa gotówkowa min. 10-15%, Stop Loss 15%, Take Profit 35%, kalkulacja Alfy portfela względem S&P 500).
+    - Struktura i harmonogram Screenera (3 koszyki: `us_quality`, `sp500_value`, `dividend_aristocrats`, alerty intraday i EOD).
+    - Integracja z Firebase Firestore Native (`buffet_users/{uid}`) i definicje wszystkich wskaźników giełdowych.
+- **Wielopoziomowa odporność i rotacja modeli językowych:**
+  - Skonfigurowano model `gemini-3.5-flash-lite` z dynamicznym fallbackiem na `gemini-flash-latest` oraz zoptymalizowanym czasem oczekiwania (timeout 6s) eliminującym zawieszanie się na zewnętrznych przeciążeniach 503.
+  - Rozbudowano silnik dynamicznego wnioskowania lokalnego o natychmiastowe, szczegółowe odpowiedzi na pytania o każdy wskaźnik, wzór i funkcję aplikacji w sytuacji braku odpowiedzi zewnętrznego API.
