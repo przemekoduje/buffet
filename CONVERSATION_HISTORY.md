@@ -85,4 +85,41 @@
    - Dokumentacja API: `http://localhost:8000/docs`
 
 ---
+
+## 4. Dziennik Sesji — 2026-11-23
+
+### 4.1. Naprawa pobierania danych i integracji Gemini AI
+- **Diagnoza błędów składniowych:** usunięto zduplikowane fragmenty po nieudanym scaleniu w `backend/app/providers/yfinance_provider.py` i `backend/app/services/buffett_calculator.py` (`IndentationError`), przywracając start FastAPI.
+- **Proxy Vite na Windows:** zmieniono cel proxy w `frontend/vite.config.js` z `http://localhost:8000` na `http://127.0.0.1:8000` (uniknięcie konfliktu IPv6 `::1` vs IPv4 `0.0.0.0`). Dodano wyraźną obsługę błędów w `SettingsView.jsx`.
+- **Migracja modeli Gemini:** starsze modele `gemini-2.5-flash` i `gemini-2.0-flash` zwracały `HTTP 404` (wycofane dla nowych kluczy), a `gemini-3.8-flash` / `gemini-3.7-flash` zwracały `503 high demand`. Przełączono domyślny model na szybki i stabilny **`gemini-flash-lite-latest`** z łańcuchem fallbacków (`gemini-3.5-flash-lite`, `gemini-3-flash-preview`, `gemini-3.5-flash`) oraz krótszym timeoutem `12s`.
+- **Launcher Windows:** dodano `start_buffet.bat` do niezależnego uruchamiania backendu i frontendu w osobnych oknach.
+
+### 4.2. Kalibracja modelu DCF i spójność liczb w analizie AI
+- **Analiza rozbieżności `BRK.B` (`$795.77` vs `~$433–$512`):** ograniczono maksymalny wzrost w DCF zależnie od skali firmy i sektora (dla `Financial Services` max `7%`, dla mega-capów > `$500 mld` max `11%` zamiast `18%`). Dla sektora finansowego/ubezpieczeniowego uwzględniana jest max `35%` gotówki netto (żeby nie traktować floatu ubezpieczeniowego jak wolnej gotówki). Wycena `BRK.B` spadła do realistycznego poziomu `~$397.33`.
+- **Spójność dźwigni i liczb AI (`KO`):**
+  - Stopa dyskontowa w `buffett_calculator.py` liczy dźwignię od znormalizowanego `Owner Earnings` (zamiast jednorazowo zaniżonego `FCF TTM`).
+  - W `ai_analyzer.py` dodano `intrinsic_value` do klucza cache AI, obniżono `temperature` do `0.2` oraz wprowadzono post-processing gwarantujący 100% zgodności wartości DCF między kartą a tekstem memoriału AI.
+
+### 4.3. Nowy Screener Rynku (EOD + 3 Koszyki + Alerty Sesyjne)
+- **Nowe tabele SQLite (`models.py`):** `market_scan_results` (trwały zapis wyników skanu EOD) oraz `market_alerts` (alerty sesyjne z 6-godzinną deduplikacją).
+- **Silnik `backend/app/services/market_scanner.py` + harmonogram w `lifespan` (`backend/main.py`):**
+  - **3 koszyki tematyczne** (~40 spółek USA): `US Quality`, `S&P 500 Value`, `Dywidendowi Arystokraci`.
+  - **Automatyczny skan EOD:** Pn–Pt po zamknięciu sesji USA (`16:15 ET` / `~22:15 PL`) + ręczny przycisk *„Skanuj rynek teraz (EOD)”*.
+  - **Alerty sesyjne (Intraday):** co 15 min w trakcie sesji USA (batch `yf.download` dla całego uniwersum) — reguły `BUY_ZONE_DROP` (HIGH), `INTRADAY_PULLBACK`, `INTRADAY_SURGE`, `VOLUME_SPIKE`.
+  - **Oznaczenie Paper Trading:** każda spółka w Screenerze i alertach ma status `W PORTFELU` (z P&L %) vs `Poza portfelem` + filtr ukrywania posiadanych pozycji oraz kolumnę rekomendacji (`STRONG BUY`, `BUY`, `HOLD`, `AVOID`).
+- **Analiza kosztów:** skan EOD i alerty intraday opierają się na darmowym `yfinance` i lokalnym silniku DCF (**0 zł**). Gemini AI (`gemini-3.5-flash-lite` / `gemini-flash-lite-latest`) uruchamia się wyłącznie na żądanie w Deep Dive (Free Tier **0 zł**; Paid Tier ok. **~$0.0013 / ~0,5 gr** za analizę).
+
+### 4.4. Realny Paper Trading z Money Management i Modalem Zleceń
+- **Nowe tabele (`models.py`):** `paper_account_config` (stały kapitał startowy domyślnie `$100 000`, saldo gotówki, zrealizowany P&L, reguły MM: domyślna pozycja %, max w 1 spółce %, max liczba pozycji, rezerwa gotówki %, SL %, TP %, prowizja %, akcje ułamkowe) oraz `paper_trades` (dziennik wszystkich zleceń `BUY`/`SELL`).
+- **Silnik `portfolio_tracker.py` + endpointy `portfolio.py`:** `POST /api/portfolio/buy`, `POST /api/portfolio/sell/{id}`, `GET/POST /api/portfolio/mm`, `POST /api/portfolio/reset` z twardą walidacją wszystkich reguł MM.
+- **Zunifikowany modal `frontend/src/components/TradeOrderModal.jsx`:** każda operacja kupna, dokupienia, sprzedaży częściowej lub zamknięcia pozycji (z Portfela, Screenera i Deep Dive) wymaga potwierdzenia w modalu z podglądem wpływu na wagi/gotówkę/P&L oraz możliwością korekty reguł MM bezpośrednio przed zatwierdzeniem.
+
+### 4.5. Newsy Rynkowe w Deep Dive i Analizie Gemini AI
+- **`yfinance_provider.py`:** dodano `get_ticker_news()` (do 8 najnowszych wiadomości z Yahoo Finance z 15-min cache).
+- **`ai_analyzer.py` + `DeepDiveView.jsx`:** 6 najnowszych nagłówków trafia do promptu Gemini AI, które zwraca ocenę sentymentu (`POZYTYWNY` / `NEUTRALNY` / `NEGATYWNY`) oraz sekcję *„Wpływ Bieżących Newsów Rynkowych”*; poniżej memoriału wyświetlane są klikalne karty newsów.
+
+### 4.6. Kolejne ustalenia w toku (przegląd zakładki Screener)
+- Rozpoczęto szczegółowy przegląd elementów zakładki Screener od punktu **1. „Sprawdź alerty sesyjne”** — zidentyfikowano 3 obszary do rozważenia: sortowanie alertów priorytetowo (`HIGH` na górze) + rozwijanie ponad 6 kart, dodanie alertów SL/TP z portfela Paper Trading oraz wyraźne oznaczanie sesji live vs ostatniej zamkniętej sesji.
+
+---
 *Dokument zarchiwizowany automatycznie dla celów ciągłości projektu.*
