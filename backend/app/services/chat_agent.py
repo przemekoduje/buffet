@@ -191,7 +191,8 @@ class ChatAgent:
                 "wants_dcf": wants_dcf,
                 "wants_mm": wants_mm,
                 "explicit_stock": bool(explicit_tickers)
-            }
+            },
+            last_user_msg=last_user_msg
         )
 
         # 6. Sugerowane akcje dla interfejsu
@@ -219,19 +220,36 @@ class ChatAgent:
         messages: List[Dict[str, str]],
         context_data: Dict[str, Any],
         custom_data: Optional[str] = None,
-        intents: Optional[Dict[str, bool]] = None
+        intents: Optional[Dict[str, bool]] = None,
+        last_user_msg: str = ""
     ) -> str:
         gemini_key = settings.GEMINI_API_KEY
         intents = intents or {}
 
-        # Próba wywołania Gemini AI
+        # 1. Dynamiczne dociągnięcie precyzyjnego wycinka z Banku Wiedzy (RAG)
+        relevant_kb = find_relevant_knowledge(last_user_msg) if last_user_msg else []
+        kb_context_str = ""
+        if relevant_kb:
+            # Weź maksymalnie 2 najbardziej pasujące tematy, skrócone do esencji, by nie przeciążyć API (zapobiega 503)
+            kb_snippets = []
+            for t in relevant_kb[:2]:
+                content = t.get("content", "").strip()
+                if len(content) > 1800:
+                    content = content[:1800] + "\n[... dalsza część w Banku Wiedzy ...]"
+                kb_snippets.append(f"### {t.get('title', '')}\n{content}")
+            kb_context_str = "\n\nOFICJALNY BANK WIEDZY APLIKACJI BUFFET (DLA TEGO ZAPYTANIA):\n" + "\n---\n".join(kb_snippets)
+
+        # 2. Próba wywołania Gemini AI
         if gemini_key:
             system_prompt = f"""Jesteś Warrenem Buffettem i doradcą inwestycyjnym w aplikacji BUFFET (przemokoduje.com).
 Odpowiadasz mądrze, spokojnie, w stylu listów do akcjonariuszy Berkshire Hathaway.
 Zasada nr 1: Nigdy nie trać pieniędzy. Zasada nr 2: Pamiętaj o zasadzie nr 1.
+Zawsze odpowiadaj bezpośrednio na zadane pytanie użytkownika. Jeśli pyta o konkretny wskaźnik, wzór, architekturę lub swój portfel, skup się wyłącznie na tym.
 
-Aktualny kontekst systemowy pobrany dla tego zapytania:
-{json.dumps(context_data, ensure_ascii=False, indent=2) if context_data else "Brak specyficznego kontekstu."}
+{kb_context_str}
+
+Aktualny kontekst systemowy aplikacji:
+{json.dumps(context_data, ensure_ascii=False, indent=2) if context_data else "Brak specyficznego kontekstu portfela/spółki."}
 {f"Dane od użytkownika: {custom_data}" if custom_data else ""}
 """
             raw_contents = []
@@ -257,19 +275,20 @@ Aktualny kontekst systemowy pobrany dla tego zapytania:
                 payload = {
                     "contents": alternating,
                     "generationConfig": {
-                        "temperature": 0.2,
+                        "temperature": 0.25,
                         "maxOutputTokens": 1500
                     }
                 }
-                # Dołącz systemInstruction jako system prompt w pierwszej wiadomości jeśli API wspiera
+                # Dołącz system prompt na początku pierwszej wiadomości
                 if system_prompt:
-                    alternating[0]["parts"][0]["text"] = f"[INSTRUKCJA SYSTEMOWA: {system_prompt}]\n\n" + alternating[0]["parts"][0]["text"]
+                    alternating[0]["parts"][0]["text"] = f"[INSTRUKCJA I WIEDZA SYSTEMOWA: {system_prompt}]\n\n" + alternating[0]["parts"][0]["text"]
 
-                models = ["gemini-3.5-flash-lite", "gemini-flash-latest"]
+                # Modele w kolejności stabilności: gemini-3.5-flash oraz gemini-3.5-flash-lite
+                models = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
                 for model in models:
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
                     try:
-                        async with httpx.AsyncClient(timeout=4.0) as client:
+                        async with httpx.AsyncClient(timeout=12.0) as client:
                             resp = await client.post(url, json=payload)
                             if resp.status_code == 200:
                                 res_data = resp.json()
@@ -278,10 +297,12 @@ Aktualny kontekst systemowy pobrany dla tego zapytania:
                                     parts = cands[0].get("content", {}).get("parts", [])
                                     if parts and parts[0].get("text"):
                                         return parts[0].get("text")
-                    except Exception:
-                        pass
+                            else:
+                                print(f"[ChatAgent Gemini Warning] {model} returned status {resp.status_code}: {resp.text[:150]}")
+                    except Exception as e:
+                        print(f"[ChatAgent Gemini Exception] {model}: {e}")
 
-        # Jeśli LLM ma przestój / przeciążenie, uruchamiamy inteligentny, dopasowany generator lokalny
+        # Jeśli LLM ma przestój / przeciążenie lub brak klucza, uruchamiamy inteligentny, dopasowany generator lokalny
         return cls._generate_fallback_response(messages, context_data, custom_data, intents)
 
     @classmethod
