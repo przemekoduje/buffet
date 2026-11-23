@@ -10,46 +10,9 @@ from app.providers import get_market_provider
 from app.services.buffett_calculator import BuffettCalculator
 from app.services.portfolio_tracker import PortfolioTracker
 from app.services.market_scanner import MarketScanner
+from app.knowledge import get_full_knowledge_document, find_relevant_knowledge, KNOWLEDGE_TOPICS
 
-APP_KNOWLEDGE_BASE = """
-# ENCYKLOPEDIA I DOKUMENTACJA WIEDZY APLIKACJI BUFFET (przemokoduje.com - Moduł IV)
-
-## 1. MISJA I GŁÓWNA FILOZOFIA
-- BUFFET to czwarty moduł platformy przemokoduje.com, poświęcony w 100% inwestowaniu w wartość (Value Investing) według zasad Warrena Buffetta i Charliego Mungera.
-- NADRZĘDNA ZASADA: „Reguła 1: Nigdy nie trać pieniędzy. Reguła 2: Zawsze pamiętaj o punkcie pierwszym.”
-- Styl myślenia: Traktujemy akcję nie jako świstek papieru do spekulacji czy wykres do kreślenia kresek, lecz jako ułamek realnie działającego przedsiębiorstwa. Jeśli biznes radzi sobie świetnie przez 10-20 lat, kurs akcji nieuchronnie podąży za jego wynikami.
-
-## 2. CZTERY FILTRY WARRENA BUFFETTA
-1. **Trwała fosa ekonomiczna (Economic Moat):** ROIC >= 12-18% oraz Marża Brutto >= 40-45% (dowód Pricing Power).
-2. **Bezpieczny bilans (Reguła nr 1):** Net Debt / FCF < 2.5 roku (max 4.0 lata), Current Ratio > 1.2.
-3. **Uczciwy i kompetentny zarząd:** Wysoki ROE >= 15-18%, mądra alokacja kapitału, regularne skupy akcji (Buybacks) przy niskich wycenach.
-4. **Margines Bezpieczeństwa (Margin of Safety - MoS):** 10-letni DCF na bazie Znormalizowanego Zysku Właścicielskiego (Owner Earnings) z dyskontem min. 15-30%.
-
-## 3. MODEL WYCENY: NORMALIZOWANY OWNER EARNINGS & 10-LETNI DCF
-- Wzór Buffetta: Owner Earnings = Zysk Netto + Amortyzacja (D&A) - Roczne Wydatki Inwestycyjne Utrzymaniowe (Maintenance CapEx).
-- Dynamiczne założenia 10-letniego DCF:
-  * Lata 1-5: 5-letni CAGR przychodów * 0.85 (max 11% dla firm >$500 mld, max 13% dla firm >$200 mld, max 7% dla finansów).
-  * Lata 6-10: Fade-down do 60% tempa z lat 1-5 (pomiędzy 3.0% a 8.0%).
-  * Wartość Rezydualna: Model Gordona ze stopą wieczystą gt = 3.0% (tempo wzrostu PKB).
-  * Stopa Dyskontowa: Stały koszt alternatywny kapitału Buffetta (9.0% dla bezpiecznych, 9.5% średnich, 10.5% podwyższonego długu).
-  * Korekta o bilans: Equity Value = PV(Przepływy 1-10) + PV(Wartość Rezydualna) - Dług Netto.
-  * Margines Bezpieczeństwa: MoS = ((Wartość Wewnętrzna - Kurs) / Wartość Wewnętrzna) * 100%.
-
-## 4. METODOLOGIA BUFFETT SCORE (0 - 100 PKT)
-1. ROIC (max 20 pkt): >=18% (20 pkt), 12-18% (14 pkt), <12% (4 pkt).
-2. ROE (max 15 pkt): >=18% (15 pkt), 12-18% (10 pkt), <12% (2 pkt).
-3. Marża Brutto (max 15 pkt): >=45% (15 pkt), 30-45% (10 pkt), <30% (3 pkt).
-4. Bezpieczeństwo Zadłużenia (max 20 pkt): Gotówka netto (20 pkt), <=2.5 roku FCF (18 pkt), 2.5-4.0 lat (10 pkt), >4.0 lat (0 pkt).
-5. Margines Bezpieczeństwa (max 20 pkt): MoS >=30% (20 pkt), 15-30% (14 pkt), 0-15% (8 pkt), <0% (0 pkt).
-6. Wzrost Przychodów (max 10 pkt): CAGR >=8% (10 pkt), 3-8% (6 pkt), <3% (2 pkt).
-
-## 5. MODUŁ PORTFEL PAPER TRADING & MONEY MANAGEMENT
-- Wirtualny kapitał startowy: $100 000 USD.
-- Pozycja 10%, max alokacja w 1 spółkę 20-25%, max 10-15 spółek w portfelu.
-- Rezerwa gotówkowa: minimum 10-15% w gotówce na okazje rynkowe.
-- Stop Loss 15%, Take Profit 35-40%.
-- Alfa Buffetta: Stopa Zwrotu Portfela (%) - Średnia Stopa Zwrotu S&P 500 (%).
-"""
+APP_KNOWLEDGE_BASE = get_full_knowledge_document()
 
 class ChatAgent:
     """
@@ -109,8 +72,8 @@ class ChatAgent:
         wants_owner_earnings = any(w in lower_msg for w in [
             "owner earnings", "zysk właścicielski", "właścicielsk", "capex"
         ])
-        wants_score = any(w in lower_msg for w in [
-            "buffett score", "score", "punktacja", "jak liczycie score", "kryteria oceny", "skala"
+        wants_score = ("altman" not in lower_msg) and any(w in lower_msg for w in [
+            "buffett score", "score buffett", "punktacja", "jak liczycie score", "kryteria oceny", "skala punktowa"
         ])
         wants_dcf = any(w in lower_msg for w in [
             "dcf", "wycen", "intrinsic value", "wartość wewnętrzna", "stopa dyskontowa"
@@ -482,7 +445,17 @@ Aktualny kontekst systemowy pobrany dla tego zapytania:
                 "- **Alfa Buffetta:** Mierzymy zysk portfela ponad benchmark S&P 500."
             )
 
-        # PRIORYTET 8: OGÓLNA ROZMOWA
+        # PRIORYTET 8: DYNAMICZNY BANK WIEDZY (DOWOLNY WSKAŹNIK, TECHNIKA, FORMUŁA)
+        relevant_topics = find_relevant_knowledge(last_user)
+        if relevant_topics:
+            top_t = relevant_topics[0]
+            return (
+                f"### {top_t['title']} (Bank Wiedzy BUFFET)\n\n"
+                f"{top_t['content'].strip()}\n\n"
+                f"📚 *Informacja pochodzi z oficjalnego Banku Wiedzy aplikacji BUFFET (moduł IV przemokoduje.com).*"
+            )
+
+        # PRIORYTET 9: OGÓLNA ROZMOWA
         return (
             "Witaj! Jestem Twoim wirtualnym doradcą w stylu **Warrena Buffetta** i **Charliego Mungera**, wbudowanym w aplikację **BUFFET** (moduł IV przemokoduje.com).\n\n"
             "Znam każdy element systemu na wylot. Możesz mnie zapytać o:\n"

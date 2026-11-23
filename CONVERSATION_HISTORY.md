@@ -182,3 +182,24 @@
 - **Wielopoziomowa odporność i rotacja modeli językowych:**
   - Skonfigurowano model `gemini-3.5-flash-lite` z dynamicznym fallbackiem na `gemini-flash-latest` oraz zoptymalizowanym czasem oczekiwania (timeout 6s) eliminującym zawieszanie się na zewnętrznych przeciążeniach 503.
   - Rozbudowano silnik dynamicznego wnioskowania lokalnego o natychmiastowe, szczegółowe odpowiedzi na pytania o każdy wskaźnik, wzór i funkcję aplikacji w sytuacji braku odpowiedzi zewnętrznego API.
+
+### 4.12. Dedykowany Moduł Banku Wiedzy (Knowledge Base) i Przeglądarka Zagadnień
+- **Struktura Modułu Banku Wiedzy (`backend/app/knowledge/knowledge_base.py`):**
+  - Utworzono 10 ustrukturyzowanych rozdziałów wiedzy pokrywających każdy aspekt serwisu:
+    1. *Filozofia Inwestowania w Wartość i Reguła Nr 1* (`philosophy`),
+    2. *Cztery Filtry Selekcyjne Warrena Buffetta* (`four_filters`),
+    3. *Zysk Właścicielski (Owner Earnings) i Normalizacja Przepływów* (`owner_earnings`),
+    4. *Model 10-letniego DCF i Wartość Wewnętrzna (Intrinsic Value)* (`dcf_model`),
+    5. *Metodologia Punktacji Buffett Score (0-100 pkt)* (`buffett_score`),
+    6. *Reguła Nr 1: Audyt Ryzyka i Sygnały Ostrzegawcze* (`rule_one_risk`),
+    7. *Portfel Paper Trading i Zasady Money Management* (`portfolio_money_management`),
+    8. *Skaner Rynku (Screener), Koszyki i Alerty Sesyjne* (`screener_baskets`),
+    9. *Encyklopedia Wszystkich Wskaźników Finansowych* (`financial_metrics_glossary` — ROIC, ROE, marże, FCF TTM, Net Debt/FCF, Current Ratio, Altman Z-Score, P/E, P/FCF, Dividend Yield, CAGR),
+    10. *Architektura Danych, Firebase Firestore i Bezpieczeństwo* (`firebase_architecture`).
+  - Zaimplementowano funkcje retrievalowe: `get_full_knowledge_document()`, `get_topics_list()`, `get_topic_by_id()` oraz `find_relevant_knowledge()` z precyzyjnym dopasowywaniem całych słów i wag słów kluczowych.
+- **Rozszerzenie API Chat (`backend/app/routers/chat.py`):**
+  - Dodano endpoint `GET /api/chat/knowledge` zwracający listę tematów i podsumowań.
+  - Dodano endpoint `GET /api/chat/knowledge/{topic_id}` zwracający pełną treść wybranego zagadnienia.
+- **Interaktywna Przeglądarka w Frontendzie (`frontend/src/components/ChatAdvisorDrawer.jsx`):**
+  - Dodano przycisk `📚 Bank Wiedzy` w nagłówku okna czatu.
+  - Zaimplementowano rozwijany panel z kafelkami wszystkich 10 tematów (kategorie, tytuły, zwięzłe streszczenia), umożliwiający natychmiastowe odpytanie agenta jednym kliknięciem.

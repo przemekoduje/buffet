@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from app.database.db import get_db
 from app.services.chat_agent import ChatAgent
+from app.knowledge import get_topics_list, get_topic_by_id, get_full_knowledge_document
 
 router = APIRouter(prefix="/api/chat", tags=["AI Chat Advisor"])
 
@@ -64,3 +65,20 @@ def get_chat_suggestions():
             }
         ]
     }
+
+@router.get("/knowledge")
+def list_knowledge_topics():
+    """Zwraca spis treści i tematy z Banku Wiedzy aplikacji BUFFET."""
+    return {
+        "topics": get_topics_list(),
+        "total": len(get_topics_list())
+    }
+
+@router.get("/knowledge/{topic_id}")
+def get_knowledge_topic(topic_id: str):
+    """Zwraca pełny artykuł merytoryczny z Banku Wiedzy dla wybranego zagadnienia."""
+    topic = get_topic_by_id(topic_id)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Nie znaleziono tematu w Banku Wiedzy")
+    return topic
+
