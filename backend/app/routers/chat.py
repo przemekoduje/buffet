@@ -82,3 +82,12 @@ def get_knowledge_topic(topic_id: str):
         raise HTTPException(status_code=404, detail="Nie znaleziono tematu w Banku Wiedzy")
     return topic
 
+@router.get("/models")
+async def get_available_models():
+    """
+    Zwraca listę dynamicznie wykrytych modeli z Google Generative Language API
+    oraz wyniki testu diagnostycznego na żywo.
+    """
+    diagnostics = await ChatAgent.get_live_model_diagnostics()
+    return diagnostics
+

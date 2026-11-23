@@ -1,6 +1,8 @@
 import re
 import json
 import httpx
+import time
+import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -17,7 +19,169 @@ APP_KNOWLEDGE_BASE = get_full_knowledge_document()
 class ChatAgent:
     """
     Wszechwiedzący Asystent Inwestycyjny i Ekspert Aplikacji BUFFET.
+    Obsługuje dynamiczne wykrywanie i testowanie dostępnych modeli Google Gemini API.
     """
+
+    # Dynamiczny cache wykrytych modeli Gemini (TTL: 30 minut)
+    _discovered_models: List[str] = []
+    _last_discovery_ts: float = 0.0
+    _model_cooldowns: Dict[str, float] = {} # model_name -> cooldown_until_timestamp
+    _active_preferred_model: Optional[str] = None
+
+    @classmethod
+    def _score_model_name(cls, name: str) -> int:
+        """Ocenia przydatność modelu do czatu inwestycyjnego na podstawie nazwy."""
+        score = 0
+        m = re.search(r'gemini-(\d+(?:\.\d+)?)', name)
+        if m:
+            try:
+                score += int(float(m.group(1)) * 100)
+            except Exception:
+                pass
+
+        if 'flash-lite' in name:
+            score += 30
+        elif 'flash' in name:
+            score += 20
+        elif 'pro' in name:
+            score += 10
+        if 'preview' in name:
+            score -= 5
+
+        # Wycofane modele (Google zwraca 404):
+        if name in ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite']:
+            return -9999
+
+        # Modele niewspierające bezpośrednio generateContent dla czatu lub specjalistyczne
+        if any(x in name for x in [
+            'tts', 'transcribe', 'image', 'clip', 'banana', 'robotics',
+            'computer-use', 'argon', 'carbon', 'hydrogen', 'neon',
+            'antigravity', 'deep-research', 'lyria', 'gemma'
+        ]):
+            return -9999
+
+        return score
+
+    @classmethod
+    async def discover_gemini_models(cls, force: bool = False) -> List[str]:
+        """
+        Dynamicznie odpytuje Google Generative Language API (GET /v1beta/models)
+        i zwraca posortowaną listę modeli wspierających generateContent.
+        """
+        gemini_key = settings.GEMINI_API_KEY
+        if not gemini_key:
+            return []
+
+        now = time.time()
+        # Jeśli cache jest świeższy niż 30 minut i nie wymuszono odświeżenia
+        if not force and cls._discovered_models and (now - cls._last_discovery_ts) < 1800:
+            return list(cls._discovered_models)
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_key}"
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json().get("models", [])
+                    scored = []
+                    for item in data:
+                        methods = item.get("supportedGenerationMethods", [])
+                        name = item.get("name", "").replace("models/", "")
+                        if "generateContent" in methods:
+                            sc = cls._score_model_name(name)
+                            if sc > 0:
+                                scored.append((name, sc))
+
+                    scored.sort(key=lambda x: x[1], reverse=True)
+                    discovered = [s[0] for s in scored]
+
+                    if discovered:
+                        # Jeśli mamy preferowany model, zachowaj go na początku
+                        if cls._active_preferred_model and cls._active_preferred_model in discovered:
+                            discovered.remove(cls._active_preferred_model)
+                            discovered.insert(0, cls._active_preferred_model)
+                        elif "gemini-3.5-flash-lite" in discovered:
+                            # 3.5-flash-lite ma najwyższą stabilność i najniższą latencję na tym kluczu
+                            discovered.remove("gemini-3.5-flash-lite")
+                            discovered.insert(0, "gemini-3.5-flash-lite")
+
+                        cls._discovered_models = discovered
+                        cls._last_discovery_ts = now
+                        return list(cls._discovered_models)
+        except Exception as e:
+            print(f"[ChatAgent Model Discovery Warning] {e}")
+
+        # Bezpieczna lista rezerwowa jeśli endpoint models byłby chwilowo niedostępny
+        fallback_models = ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-3.6-flash"]
+        if not cls._discovered_models:
+            cls._discovered_models = fallback_models
+            cls._last_discovery_ts = now
+        return list(cls._discovered_models)
+
+    @classmethod
+    async def get_live_model_diagnostics(cls) -> Dict[str, Any]:
+        """
+        Przeprowadza dynamiczny test diagnostyczny na żywo wszystkich kandydatów modeli.
+        Zwraca pełny raport o dostępności, czasach odpowiedzi i aktywnym modelu.
+        """
+        gemini_key = settings.GEMINI_API_KEY
+        if not gemini_key:
+            return {
+                "configured": False,
+                "error": "Brak skonfigurowanego klucza GEMINI_API_KEY",
+                "models": []
+            }
+
+        models = await cls.discover_gemini_models(force=True)
+
+        async def ping_model(m: str) -> Dict[str, Any]:
+            t0 = time.time()
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={gemini_key}"
+            try:
+                async with httpx.AsyncClient(timeout=3.5) as client:
+                    resp = await client.post(url, json={"contents": [{"parts": [{"text": "ping"}]}]})
+                    latency = int((time.time() - t0) * 1000)
+                    if resp.status_code == 200:
+                        return {
+                            "model": m,
+                            "status": "ONLINE",
+                            "http_code": 200,
+                            "latency_ms": latency
+                        }
+                    else:
+                        err = resp.json().get("error", {}).get("message", f"HTTP {resp.status_code}")
+                        return {
+                            "model": m,
+                            "status": "UNAVAILABLE",
+                            "http_code": resp.status_code,
+                            "latency_ms": latency,
+                            "error": err[:120]
+                        }
+            except Exception as e:
+                return {
+                    "model": m,
+                    "status": "TIMEOUT",
+                    "http_code": 0,
+                    "latency_ms": int((time.time() - t0) * 1000),
+                    "error": str(e)
+                }
+
+        # Równoległe pingle dla top 6 modeli
+        tasks = [ping_model(m) for m in models[:6]]
+        diagnostics = await asyncio.gather(*tasks)
+
+        online_models = [d["model"] for d in diagnostics if d["status"] == "ONLINE"]
+        active_model = online_models[0] if online_models else (cls._active_preferred_model or "gemini-3.5-flash-lite")
+        cls._active_preferred_model = active_model
+
+        return {
+            "configured": True,
+            "active_preferred_model": active_model,
+            "online_models_count": len(online_models),
+            "total_discovered_candidates": len(models),
+            "diagnostics": diagnostics,
+            "all_discovered_models": models
+        }
 
     @classmethod
     def _extract_tickers(cls, text: str) -> List[str]:
@@ -283,9 +447,20 @@ Aktualny kontekst systemowy aplikacji:
                 if system_prompt:
                     alternating[0]["parts"][0]["text"] = f"[INSTRUKCJA I WIEDZA SYSTEMOWA: {system_prompt}]\n\n" + alternating[0]["parts"][0]["text"]
 
-                # Modele w kolejności stabilności: gemini-3.5-flash oraz gemini-3.5-flash-lite
-                models = ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
-                for model in models:
+                # Dynamicznie odpytujemy i wybieramy dostępne modele
+                candidate_models = await cls.discover_gemini_models()
+                now_ts = time.time()
+                # Odsiej modele będące w krótkim cooldownie po błędach 503/429
+                active_candidates = [
+                    m for m in candidate_models
+                    if cls._model_cooldowns.get(m, 0) < now_ts
+                ]
+                # Jeśli wszystkie wpadły w cooldown, resetujemy cooldowny
+                if not active_candidates:
+                    cls._model_cooldowns.clear()
+                    active_candidates = candidate_models
+
+                for model in active_candidates[:5]:
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
                     try:
                         async with httpx.AsyncClient(timeout=12.0) as client:
@@ -296,11 +471,19 @@ Aktualny kontekst systemowy aplikacji:
                                 if cands:
                                     parts = cands[0].get("content", {}).get("parts", [])
                                     if parts and parts[0].get("text"):
+                                        # Sukces! Ustaw ten model jako preferowany na przyszłość
+                                        cls._active_preferred_model = model
+                                        if model in cls._discovered_models:
+                                            cls._discovered_models.remove(model)
+                                            cls._discovered_models.insert(0, model)
                                         return parts[0].get("text")
                             else:
-                                print(f"[ChatAgent Gemini Warning] {model} returned status {resp.status_code}: {resp.text[:150]}")
+                                print(f"[ChatAgent Gemini Warning] {model} returned status {resp.status_code}: {resp.text[:120]}")
+                                # Dodaj 60s cooldown dla modeli przeciążonych lub z limitem
+                                cls._model_cooldowns[model] = now_ts + 60
                     except Exception as e:
                         print(f"[ChatAgent Gemini Exception] {model}: {e}")
+                        cls._model_cooldowns[model] = now_ts + 60
 
         # Jeśli LLM ma przestój / przeciążenie lub brak klucza, uruchamiamy inteligentny, dopasowany generator lokalny
         return cls._generate_fallback_response(messages, context_data, custom_data, intents)

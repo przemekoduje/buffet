@@ -41,6 +41,7 @@ export default function ChatAdvisorDrawer({
   const [isExpanded, setIsExpanded] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
   const [knowledgeTopics, setKnowledgeTopics] = useState([]);
+  const [activeModelInfo, setActiveModelInfo] = useState(null);
 
   const messagesEndRef = useRef(null);
 
@@ -66,6 +67,16 @@ export default function ChatAdvisorDrawer({
       .then((res) => res.json())
       .then((data) => {
         if (data.topics) setKnowledgeTopics(data.topics);
+      })
+      .catch(() => {});
+
+    // Pobierz dynamiczny status podłączonego modelu Gemini
+    fetch('/api/chat/models')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.active_preferred_model) {
+          setActiveModelInfo(data);
+        }
       })
       .catch(() => {});
   }, []);
@@ -177,9 +188,19 @@ export default function ChatAdvisorDrawer({
               <h3 className="text-sm font-serif font-bold text-white tracking-tight">
                 Warren Buffett AI &bull; Guru Inwestycyjny
               </h3>
-              <span className="text-[10px] bg-neutral-800 text-amber-300 border border-neutral-700 px-1.5 py-0.2 rounded font-mono">
-                LIVE
-              </span>
+              {activeModelInfo ? (
+                <span
+                  className="text-[9px] bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 px-2 py-0.5 rounded-full font-mono flex items-center gap-1 shadow-2xs"
+                  title={`Aktywny model LLM: ${activeModelInfo.active_preferred_model} (Wykryto ${activeModelInfo.online_models_count} aktywnych modeli)`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  {activeModelInfo.active_preferred_model.replace('gemini-', 'Gemini ')}
+                </span>
+              ) : (
+                <span className="text-[10px] bg-neutral-800 text-amber-300 border border-neutral-700 px-1.5 py-0.2 rounded font-mono">
+                  LIVE
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-neutral-400">
               Doradztwo oparte na 4 Zasadach Buffetta &bull; Zna aplikację na wylot
