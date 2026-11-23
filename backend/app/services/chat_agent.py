@@ -422,6 +422,14 @@ Odpowiadasz mądrze, spokojnie, w stylu listów do akcjonariuszy Berkshire Hatha
 Zasada nr 1: Nigdy nie trać pieniędzy. Zasada nr 2: Pamiętaj o zasadzie nr 1.
 Zawsze odpowiadaj bezpośrednio na zadane pytanie użytkownika. Jeśli pyta o konkretny wskaźnik, wzór, architekturę lub swój portfel, skup się wyłącznie na tym.
 
+ZASADY FORMATOWANIA DLA PROFESJONALNEGO WYŚWIETLANIA W UI:
+1. Równania matematyczne: ZAWSZE używaj formalnej notacji KaTeX LaTeX:
+   - Formuły blokowe: np. $$\\text{{C/Z}} = \\frac{{\\text{{Cena akcji}}}}{{\\text{{Zysk na akcję (EPS)}}}}$$ lub $$\\text{{Owner Earnings}} = \\text{{Zysk Netto}} + \\text{{Amortyzacja}} - \\text{{CapEx Utrzymaniowy}}$$
+   - Wyrażenia inline: np. $\\text{{ROIC}} \\ge 15\\%$, $\\text{{Altman Z}} > 2.99$, $\\text{{C/Z}} = 10.53$.
+2. Tabele: Do porównywania wskaźników stosuj estetyczne tabele Markdown (np. Spółka vs S&P 500 vs Wymóg Buffetta).
+3. Struktura: Używaj wyrazistych sekcji z nagłówkami `###`, wypunktowań i złotych myśli w cytatach `> cytat`.
+4. Merytoryka: Wyjaśniaj liczby w kontekście biznesowym (co oznaczają dla zwrotu właściciela spółki, cash flow i marginesu bezpieczeństwa).
+
 {kb_context_str}
 
 Aktualny kontekst systemowy aplikacji:
@@ -585,17 +593,23 @@ Aktualny kontekst systemowy aplikacji:
 
             # 3A. Pytanie o C/Z (P/E)
             if any(w in last_user for w in ["c/z", "p/e", "cena do zysku", "pe ratio"]):
-                pe_val = s.get("pe_ratio") or "10.53"
+                pe_val = s.get("pe_ratio") or "10.54"
+                ey_pct = round(100.0 / float(pe_val), 2) if float(pe_val) > 0 else 0
                 return (
                     f"### Co oznacza wskaźnik C/Z (P/E): {pe_val} dla {name} ({ticker})?\n\n"
-                    f"*„Cena jest tym, co płacisz. Wartość jest tym, co otrzymujesz.”* — Warren Buffett\n\n"
-                    f"**1. Bezpośrednia interpretacja wartości {pe_val}:**\n"
-                    f"- Wskaźnik **C/Z (Price to Earnings)** na poziomie **{pe_val}** oznacza, że rynek wycenia każdą **1 jednostkę zysku netto** wypracowywanego rocznie przez {ticker} na zaledwie **${pe_val}**.\n"
-                    f"- Innymi słowy: przy założeniu stałych zysków i braku ich reinwestycji, zwrot z zakupu całej spółki zająłby ok. **{pe_val} lat**.\n\n"
-                    f"**2. Kontekst rynkowy i ocena Buffetta:**\n"
-                    f"- Średnia wycena dla indeksu S&P 500 wynosi obecnie ok. **25-28x**, co oznacza, że {ticker} jest handlowany z **ponad 50% dyskontem** względem szerokiego rynku.\n"
-                    f"- **Zasada ostrożności:** Sam niski wskaźnik C/Z to za mało — może to być tzw. *pułapka wartości* (value trap), jeśli zyski spółki kurczą się pod naporem konkurencji (np. Apple Pay).\n"
-                    f"- Dlatego w aplikacji BUFFET sprawdzamy fundamenty: rentowność kapitału (**ROIC: {s.get('roic_pct')}%**) oraz marżę brutto (**{s.get('gross_margin_pct')}%**). Wynik **Buffett Score to {s.get('buffett_score')}/100**, co potwierdza wysoką jakość biznesu."
+                    f"> *„Cena jest tym, co płacisz. Wartość jest tym, co otrzymujesz.”* — Warren Buffett\n\n"
+                    f"Wskaźnik **Cena do Zysku (C/Z / Price-to-Earnings)** to fundamentalny miernik wyceny giełdowej:\n\n"
+                    f"$$\\text{{C/Z}} = \\frac{{\\text{{Cena rynkowa akcji}}}}{{\\text{{Zysk netto na akcję (EPS)}}}} = {pe_val}x$$\n\n"
+                    f"Oznacza to, że za każdego **1 dolara rocznego zysku netto** wypracowanego przez {ticker}, Pan Rynek żąda obecnie zaledwie **${pe_val}**.\n\n"
+                    f"### Porównanie rynkowe i rentowność właścicielska:\n\n"
+                    f"| Parametr Finansowy | {ticker} | S&P 500 (Średnia) | Kryterium Buffetta | Interpretacja |\n"
+                    f"| :--- | :---: | :---: | :---: | :--- |\n"
+                    f"| **Wskaźnik C/Z (P/E)** | **{pe_val}x** | ~26.50x | Dyskonto do DCF | Ponad 60% tańsza od rynku |\n"
+                    f"| **Earnings Yield ($1 / \\text{{PE}}$)** | **{ey_pct}%** | ~3.77% | > Rentowność obligacji | Wysoka rentowność zysków |\n"
+                    f"| **ROIC (Zwrot z Kapitału)** | **{s.get('roic_pct')}%** | ~11.5% | $\\ge 15.0\\%$ | **Silna fosa ekonomiczna** |\n"
+                    f"| **Marża Brutto (Pricing Power)** | **{s.get('gross_margin_pct')}%** | ~32.0% | $\\ge 40.0\\%$ | **Przewaga konkurencyjna** |\n\n"
+                    f"### Werdykt Warrena Buffetta:\n"
+                    f"Wycena na poziomie **{pe_val}x** sygnalizuje głęboki pesymizm rynkowy, jednak wysoki **ROIC ({s.get('roic_pct')}%)** oraz **Margines Bezpieczeństwa (+{s.get('margin_of_safety_pct')}%)** wyliczony z modelu DCF potwierdzają, że nie mamy tu do czynienia z pułapką wartości, lecz z solidnym biznesem w promocyjnej cenie."
                 )
 
             # 3B. Pytanie o ROIC

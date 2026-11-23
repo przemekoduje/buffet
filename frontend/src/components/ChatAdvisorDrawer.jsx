@@ -18,6 +18,7 @@ import {
   Info,
   BookOpen
 } from 'lucide-react';
+import ChatMessageContent from './ChatMessageContent';
 
 export default function ChatAdvisorDrawer({
   isOpen,
@@ -312,10 +313,18 @@ export default function ChatAdvisorDrawer({
                     : 'bg-white border border-neutral-200 text-neutral-900 rounded-bl-xs'
                 }`}
               >
-                {/* Treść wiadomości z obsługą markdown-like formatowania */}
-                <div className="whitespace-pre-wrap font-sans text-xs">
-                  {m.content}
-                </div>
+                {/* Treść wiadomości z pełnym renderowaniem Markdown, KaTeX i Kart Wizualnych */}
+                {isUser ? (
+                  <div className="whitespace-pre-wrap font-sans text-xs text-white">
+                    {m.content}
+                  </div>
+                ) : (
+                  <ChatMessageContent
+                    content={m.content}
+                    dataUsed={m.dataUsed}
+                    onActionClick={handleActionClick}
+                  />
+                )}
 
                 {/* Wykorzystane dane rynkowe badge */}
                 {m.dataUsed?.analyzed_stocks && m.dataUsed.analyzed_stocks.length > 0 && (
