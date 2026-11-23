@@ -203,3 +203,26 @@
 - **Interaktywna Przeglądarka w Frontendzie (`frontend/src/components/ChatAdvisorDrawer.jsx`):**
   - Dodano przycisk `📚 Bank Wiedzy` w nagłówku okna czatu.
   - Zaimplementowano rozwijany panel z kafelkami wszystkich 10 tematów (kategorie, tytuły, zwięzłe streszczenia), umożliwiający natychmiastowe odpytanie agenta jednym kliknięciem.
+
+### 4.13. Diagnoza Przyczyn Błędów Agenta, Dynamiczne Wykrywanie Modeli i Redundancja
+- **Diagnoza przyczyn halucynacji i szablonowych odpowiedzi:**
+  - Zidentyfikowano 4 przyczyny techniczne: wycofanie modeli z kodem 404 (`gemini-2.5-flash`), przeciążenia 503 i limity 429 na darmowych planach Google, zbyt krótki timeout (4s) zrywający połączenie oraz zablokowanie na sztywnym fallbacku z automatycznym narzucaniem tickera z aktywnej karty (sprawa Berkshire Hathaway `BRK.B`).
+  - Wdrożono dynamiczny mechanizm RAG: przed wygenerowaniem odpowiedzi backend pobiera najtrafniejszy wycinek z Banku Wiedzy i wstrzykuje go do promptu instrukcji, co gwarantuje 100% uziemienia merytorycznego.
+- **Dynamiczne odpytywanie modeli Google Gemini API (`discover_gemini_models`):**
+  - Backend dynamicznie odpytuje endpoint `GET https://generativelanguage.googleapis.com/v1beta/models` z kluczem API, filtrując 50 modeli i selekcjonując wyłącznie najszybsze modele czatowe.
+  - Przeprowadzono live probe wyłaniający stabilne i błyskawiczne modele: `gemini-3-flash-preview` (~1.0s, 200 OK) oraz `gemini-3.5-flash-lite` (~0.8s, 200 OK).
+  - Wdrożono automatyczny failover z 60s cooldownem dla modeli zwracających błędy oraz dynamiczną promocję działającego modelu na szczyt listy preferencji (#1 Preferred Model).
+  - Dodano endpoint diagnostyczny `GET /api/chat/models` wykonujący równoległe testy ping z czasem reakcji i kodami HTTP oraz zielony wskaźnik modelu w UI nagłówka czatu (`🟢 Gemini 3.5 Flash Lite`).
+
+### 4.14. Profesjonalne Formatowanie Wizualne: KaTeX LaTeX, Karty Wyceny i Tabele
+- **Integracja KaTeX i ReactMarkdown (`ChatMessageContent.jsx`):**
+  - Zainstalowano i wdrożono pakiety `react-markdown`, `remark-math`, `rehype-katex` oraz arkusze stylów `katex.min.css`.
+  - Wzory matematyczne finansów (C/Z, Owner Earnings, DCF, ROIC, Altman Z-Score) renderują się teraz jako eleganckie formuły matematyczne KaTeX z poziomymi kreskami ułamkowymi i profesjonalną typografią.
+- **Interaktywna Karta Wyceny Spółki (`StockVisualSnapshot`):**
+  - Automatycznie wbudowywana w odpowiedź agenta w przypadku analizy spółki:
+    - Dynamiczne paski porównawcze: **Kurs Rynkowy** vs **Wartość Wewnętrzna DCF** wraz z kolorystycznym wyróżnieniem Marginesu Bezpieczeństwa (np. zielone `+44.3%`).
+    - Kafelki wskaźników fundamentalnych: **C/Z (P/E)** z oceną dyskonta, **ROIC** z weryfikacją progu fosy min. 15% oraz **Marża Brutto** z oceną Pricing Power.
+    - Odznaka Buffett Score i rekomendacja modelu (`STRONG_BUY`, `BUY`, `HOLD`, `AVOID`).
+- **Precyzyjny Fallback i Tabele Porównawcze:**
+  - Zlikwidowano problem ślepego wypluwania raportu DCF dla całej spółki przy pytaniach o pojedynczy wskaźnik. Jeśli użytkownik pyta o C/Z (P/E), agent wyjaśnia dokładnie ten parametr, generuje tabelę porównawczą (Spółka vs S&P 500 vs Wymóg Buffetta) oraz wzór KaTeX.
+  - Zaktualizowano prompt systemowy Gemini AI wymuszający stosowanie profesjonalnej notacji matematycznej KaTeX `$$...$$` i tabel porównawczych.
