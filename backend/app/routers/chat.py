@@ -11,6 +11,9 @@ class ChatMessage(BaseModel):
     role: str # "user" | "assistant" | "system"
     content: str
 
+    class Config:
+        extra = "ignore"
+
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     context_ticker: Optional[str] = None

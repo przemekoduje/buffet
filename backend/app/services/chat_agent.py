@@ -120,6 +120,7 @@ class ChatAgent:
         wants_portfolio = any(w in last_user_msg.lower() for w in ["portfel", "portfolio", "konto", "pozycje", "gotówka", "p&l", "zysk", "strata", "alfa"])
         if wants_portfolio and db:
             summary = PortfolioTracker.get_portfolio_summary(db)
+            raw_holdings = summary.get("holdings") or []
             context_data["user_portfolio"] = {
                 "total_portfolio_value": summary.get("total_portfolio_value"),
                 "cash_balance": summary.get("cash_balance"),
@@ -128,14 +129,14 @@ class ChatAgent:
                 "positions_count": summary.get("positions_count"),
                 "holdings": [
                     {
-                        "ticker": h.ticker,
-                        "shares": h.shares,
-                        "entry_price": h.entry_price,
-                        "current_price": h.current_price,
-                        "pnl_pct": h.pnl_pct,
-                        "weight_pct": h.weight_pct
+                        "ticker": h.get("ticker") if isinstance(h, dict) else getattr(h, "ticker", ""),
+                        "shares": h.get("shares") if isinstance(h, dict) else getattr(h, "shares", 0),
+                        "entry_price": h.get("entry_price") if isinstance(h, dict) else getattr(h, "entry_price", 0),
+                        "current_price": h.get("current_price") if isinstance(h, dict) else getattr(h, "current_price", 0),
+                        "pnl_pct": h.get("unrealized_pnl_pct") or (h.get("pnl_pct") if isinstance(h, dict) else getattr(h, "pnl_pct", 0.0)),
+                        "weight_pct": h.get("weight_pct") if isinstance(h, dict) else getattr(h, "weight_pct", 0.0)
                     }
-                    for h in (summary.get("holdings") or [])
+                    for h in raw_holdings
                 ],
                 "mm_rules": summary.get("mm_config")
             }
@@ -143,10 +144,11 @@ class ChatAgent:
         # Sprawdź czy pytanie dotyczy rekomendacji / screenera / okazji rynkowych
         wants_screener = any(w in last_user_msg.lower() for w in ["okazj", "rekomendacj", "co kupić", "ranking", "screener", "tanie", "niedowartościowan"])
         if wants_screener and db:
-            scan_res = MarketScanner.get_all_scan_results(db)
+            screener_data = MarketScanner.get_screener_payload(db)
+            scan_res = screener_data.get("items", [])
             top_stocks = sorted(
-                [s for s in scan_res if s.get("buffett_score", 0) >= 65],
-                key=lambda x: x.get("buffett_score", 0),
+                [s for s in scan_res if s.get("buffett_score", 0) >= 60],
+                key=lambda x: (x.get("buffett_score", 0), x.get("margin_of_safety_pct", 0)),
                 reverse=True
             )[:5]
             if top_stocks:
@@ -218,32 +220,48 @@ DODATKOWE DANE OD UŻYTKOWNIKA (JEŚLI PODANE):
         if gemini_key:
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={gemini_key}"
-                formatted_contents = []
+                raw_contents = []
                 for m in messages:
                     role = "user" if m.get("role") == "user" else "model"
-                    formatted_contents.append({
-                        "role": role,
-                        "parts": [{"text": m.get("content", "")}]
-                    })
+                    txt = m.get("content", "").strip()
+                    if txt:
+                        raw_contents.append({"role": role, "parts": [{"text": txt}]})
 
-                payload = {
-                    "systemInstruction": {"parts": [{"text": system_instruction}]},
-                    "contents": formatted_contents,
-                    "generationConfig": {
-                        "temperature": 0.3,
-                        "maxOutputTokens": 1500
+                # Gemini API wymaga, aby pierwsza wiadomość pochodziła od 'user'
+                while raw_contents and raw_contents[0]["role"] != "user":
+                    raw_contents.pop(0)
+
+                # Gemini wymaga naprzemiennych ról user -> model -> user
+                alternating_contents = []
+                last_role = None
+                for c in raw_contents:
+                    if c["role"] != last_role:
+                        alternating_contents.append(c)
+                        last_role = c["role"]
+                    else:
+                        alternating_contents[-1]["parts"][0]["text"] += "\n\n" + c["parts"][0]["text"]
+
+                if alternating_contents:
+                    payload = {
+                        "systemInstruction": {"parts": [{"text": system_instruction}]},
+                        "contents": alternating_contents,
+                        "generationConfig": {
+                            "temperature": 0.3,
+                            "maxOutputTokens": 1500
+                        }
                     }
-                }
 
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    resp = await client.post(url, json=payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        candidates = data.get("candidates", [])
-                        if candidates:
-                            parts = candidates[0].get("content", {}).get("parts", [])
-                            if parts:
-                                return parts[0].get("text", "")
+                    async with httpx.AsyncClient(timeout=15.0) as client:
+                        resp = await client.post(url, json=payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            candidates = data.get("candidates", [])
+                            if candidates:
+                                parts = candidates[0].get("content", {}).get("parts", [])
+                                if parts:
+                                    return parts[0].get("text", "")
+                        else:
+                            print(f"[ChatAgent Gemini HTTP {resp.status_code}] {resp.text}")
             except Exception as e:
                 print(f"[ChatAgent Gemini Error, falling back to local reasoning] {e}")
 

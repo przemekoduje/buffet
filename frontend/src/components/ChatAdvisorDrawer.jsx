@@ -70,17 +70,26 @@ export default function ChatAdvisorDrawer({
     setLoading(true);
 
     try {
+      const cleanMessages = newMessages.map((m) => ({
+        role: m.role,
+        content: m.content
+      }));
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: newMessages,
+          messages: cleanMessages,
           context_ticker: activeTicker || undefined,
           custom_data: customData.trim() || undefined
         })
       });
 
-      if (!res.ok) throw new Error('Błąd połączenia z doradcą AI');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        const errorDetail = errData?.detail || `Błąd serwera (${res.status})`;
+        throw new Error(errorDetail);
+      }
       const data = await res.json();
 
       setMessages((prev) => [
