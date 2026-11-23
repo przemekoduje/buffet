@@ -55,6 +55,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         setError('Nieprawidłowy adres email lub hasło.');
       } else if (err.code === 'auth/email-already-in-use') {
         setError('Ten adres email jest już zarejestrowany. Zaloguj się.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError('Dostawca logowania nie został jeszcze aktywowany w konsoli Firebase.');
       } else {
         setError(err.message || 'Wystąpił błąd autoryzacji.');
       }

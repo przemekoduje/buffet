@@ -149,3 +149,12 @@
 - **Weryfikacja:**
   - Potwierdzono pomyślny odczyt i zapis danych w kolekcji `buffet_users` w nowym projekcie `buffet-3620c`.
   - Serwery backend i frontend zrestartowane i aktywne.
+
+### 4.9. Konfiguracja Logowania (Email / Hasło oraz Google)
+- **Aktywacja Identity Platform na projekcie `buffet-3620c`:**
+  - Powiązano konto rozliczeniowe z projektem.
+  - Wywołano `initializeAuth` i aktywowano obsługę `signIn.email.enabled: true`.
+  - Rozszerzono listę `authorizedDomains` o `localhost`, `127.0.0.1`, `buffet-3620c.firebaseapp.com` oraz `przemokoduje.com`.
+- **Weryfikacja:**
+  - Przetestowano pomyślną rejestrację i logowanie nowego użytkownika przez oficjalne REST API Firebase (`test@buffet.com`).
+  - Zaktualizowano `AuthModal.jsx` z obsługą błędów i intuicyjnym przełącznikiem logowania/rejestracji.
