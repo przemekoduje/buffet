@@ -6,6 +6,7 @@ import DeepDiveView from './components/DeepDiveView';
 import SettingsView from './components/SettingsView';
 import TradeOrderModal from './components/TradeOrderModal';
 import AuthModal from './components/AuthModal';
+import ChatAdvisorDrawer from './components/ChatAdvisorDrawer';
 import {
   subscribeToAuthChanges,
   logoutUser,
@@ -19,6 +20,7 @@ export default function App() {
   const [selectedTicker, setSelectedTicker] = useState('BRK.B');
   const [orderModal, setOrderModal] = useState(null);
   const [tradeNotice, setTradeNotice] = useState(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   // Autoryzacja i Firebase Cloud Sync
   const [currentUser, setCurrentUser] = useState(null);
@@ -333,6 +335,8 @@ export default function App() {
         onLogout={logoutUser}
         syncStatus={syncStatus}
         onManualSync={() => syncToCloud(currentUser, portfolioSummary)}
+        isChatOpen={isChatOpen}
+        onToggleChat={() => setIsChatOpen(!isChatOpen)}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
@@ -413,6 +417,33 @@ export default function App() {
           setCurrentUser(user);
         }}
       />
+
+      <ChatAdvisorDrawer
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        activeTicker={selectedTicker}
+        onSelectTicker={handleSelectTicker}
+        onOpenOrderModal={setOrderModal}
+        onNavigateTab={setActiveTab}
+      />
+
+      {!isChatOpen && (
+        <button
+          onClick={() => setIsChatOpen(true)}
+          className="fixed bottom-6 right-6 z-40 bg-neutral-900 hover:bg-neutral-800 text-white rounded-full p-2.5 sm:px-4 sm:py-2.5 shadow-2xl flex items-center gap-2.5 transition-all hover:scale-105 cursor-pointer border border-neutral-700 animate-in fade-in"
+        >
+          <div className="w-7 h-7 rounded-full bg-amber-400 text-neutral-950 font-serif font-bold text-xs flex items-center justify-center">
+            WB
+          </div>
+          <div className="text-left hidden sm:block">
+            <div className="text-xs font-serif font-bold text-white flex items-center gap-1.5">
+              <span>Guru AI</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            </div>
+            <div className="text-[10px] text-neutral-400 font-mono">Doradca Buffetta</div>
+          </div>
+        </button>
+      )}
 
       <footer className="border-t border-neutral-200 bg-white py-6 text-center text-xs text-neutral-500 font-mono">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">

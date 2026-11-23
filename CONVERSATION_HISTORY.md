@@ -158,3 +158,14 @@
 - **Weryfikacja:**
   - Przetestowano pomyślną rejestrację i logowanie nowego użytkownika przez oficjalne REST API Firebase (`test@buffet.com`).
   - Zaktualizowano `AuthModal.jsx` z obsługą błędów i intuicyjnym przełącznikiem logowania/rejestracji.
+
+### 4.10. Implementacja Wszechwiedzącego Agenta Chat AI (Guru Buffetta)
+- **Moduł Doradcy Inwestycyjnego w Backendzie (`backend/app/services/chat_agent.py` & `backend/app/routers/chat.py`):**
+  - Stworzono silnik `ChatAgent` posiadający pełną bazę wiedzy o aplikacji BUFFET (4 filary Buffetta, model DCF Owner Earnings, scoring fundamentalny 0-100, zasady Money Management, Paper Trading, wiadomości rynkowe, alerty i synchronizacja Firebase).
+  - Agent automatycznie wykrywa tickery spółek w wypowiedziach użytkownika (np. AAPL, KO, BRK.B, TSLA) i w czasie rzeczywistym pobiera z rynków aktualne wskaźniki (P/E, ROIC, Margines Bezpieczeństwa, Wycena DCF, P/FCF, wiadomości).
+  - Możliwość wprowadzania danych zewnętrznych przez użytkownika (np. wklejenie raportu kwartalnego, fragmentu 10-K, notatki maklerskiej) do dogłębnej analizy.
+  - Generowanie odpowiedzi w oparciu o Google Gemini AI (lub inteligentny silnik regułowy w stylu Warrena Buffetta) wraz z interaktywnymi akcjami (otwarcie analizy spółki, złożenie zlecenia kupna w Paper Trading, przejście do screenera).
+- **Interfejs Chat AI na Frontendzie (`frontend/src/components/ChatAdvisorDrawer.jsx`):**
+  - Wysuwany panel boczny (Drawer) z awatarem i statusem Guru Inwestycyjnego ("Warren Buffett AI"), minimalistyczną typografią i możliwością rozszerzenia na pełny ekran.
+  - Szybkie podpowiedzi (Starter Pills), akordeon na dane zewnętrzne z raportów/artykułów oraz interaktywne przyciski akcji do natychmiastowego przejścia do wykresów i zleceń.
+  - Przycisk w nagłówku aplikacji (`Header.jsx`) z pulsującym wskaźnikiem oraz pływający przycisk FAB w prawym dolnym rogu ekranu (`App.jsx`).

@@ -9,7 +9,9 @@ export default function Header({
   onOpenAuth,
   onLogout,
   syncStatus = 'synced', // 'synced', 'syncing', 'local'
-  onManualSync
+  onManualSync,
+  isChatOpen,
+  onToggleChat,
 }) {
   const tabs = [
     { id: 'portfolio', label: 'Portfel Demo (Audyt 1R)', icon: TrendingUp },
@@ -87,6 +89,20 @@ export default function Header({
                 </button>
               );
             })}
+
+            {/* Guru AI Chat Button */}
+            <button
+              onClick={onToggleChat}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-all border ${
+                isChatOpen
+                  ? 'bg-amber-400 text-neutral-950 border-amber-500 font-bold shadow-xs'
+                  : 'bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-200'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-amber-600" />
+              <span>Guru AI</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            </button>
           </nav>
 
           {/* User Auth Chip */}
