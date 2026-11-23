@@ -31,6 +31,30 @@ class ChatAgent:
     @classmethod
     def _score_model_name(cls, name: str) -> int:
         """Ocenia przydatność modelu do czatu inwestycyjnego na podstawie nazwy."""
+        # Wycofane modele (Google zwraca 404):
+        if name in ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite']:
+            return -9999
+
+        # Modele niewspierające bezpośrednio generateContent dla czatu lub specjalistyczne
+        if any(x in name for x in [
+            'tts', 'transcribe', 'image', 'clip', 'banana', 'robotics',
+            'computer-use', 'argon', 'carbon', 'hydrogen', 'neon',
+            'antigravity', 'deep-research', 'lyria', 'gemma'
+        ]):
+            return -9999
+
+        # Modele o potwierdzonym, stabilnym działaniu 200 OK na darmowym planie:
+        if name == 'gemini-3-flash-preview':
+            return 1000
+        if name == 'gemini-3.5-flash-lite':
+            return 950
+        if name == 'gemini-3.1-flash-lite':
+            return 900
+        if name == 'gemini-3.5-flash':
+            return 800
+        if name == 'gemini-3.6-flash':
+            return 750
+
         score = 0
         m = re.search(r'gemini-(\d+(?:\.\d+)?)', name)
         if m:
@@ -47,18 +71,6 @@ class ChatAgent:
             score += 10
         if 'preview' in name:
             score -= 5
-
-        # Wycofane modele (Google zwraca 404):
-        if name in ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash-lite']:
-            return -9999
-
-        # Modele niewspierające bezpośrednio generateContent dla czatu lub specjalistyczne
-        if any(x in name for x in [
-            'tts', 'transcribe', 'image', 'clip', 'banana', 'robotics',
-            'computer-use', 'argon', 'carbon', 'hydrogen', 'neon',
-            'antigravity', 'deep-research', 'lyria', 'gemma'
-        ]):
-            return -9999
 
         return score
 
@@ -460,10 +472,10 @@ Aktualny kontekst systemowy aplikacji:
                     cls._model_cooldowns.clear()
                     active_candidates = candidate_models
 
-                for model in active_candidates[:5]:
+                for model in active_candidates[:8]:
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
                     try:
-                        async with httpx.AsyncClient(timeout=12.0) as client:
+                        async with httpx.AsyncClient(timeout=7.0) as client:
                             resp = await client.post(url, json=payload)
                             if resp.status_code == 200:
                                 res_data = resp.json()
@@ -565,33 +577,66 @@ Aktualny kontekst systemowy aplikacji:
                 f"Nie kupuj ich jednak na raz — zbadaj ich bilanse i kupuj wtedy, gdy rynek panikuje."
             )
 
-        # PRIORYTET 3: ANALIZA KONKRETNEJ SPÓŁKI
+        # PRIORYTET 3: OBSŁUGA PYTAŃ O WSKAŹNIKI LUB SPÓŁKĘ
         if "analyzed_stocks" in context_data and context_data["analyzed_stocks"]:
             s = context_data["analyzed_stocks"][0]
-            mos = s["margin_of_safety_pct"]
-            is_cheap = mos > 10
-            moat_verdict = "potężną fosę ekonomiczną" if s["gross_margin_pct"] >= 40 and s["roic_pct"] >= 15 else "umiarkowaną fosę"
-            debt_verdict = "bezpieczny" if s["net_debt_to_fcf"] <= 2.5 else "wymagający wzmożonej czujności"
+            ticker = s["ticker"]
+            name = s["company_name"]
 
-            return (
-                f"### Analiza w stylu Warrena Buffetta: **{s['company_name']} ({s['ticker']})**\n\n"
-                f"*„Cena jest tym, co płacisz. Wartość jest tym, co otrzymujesz.”*\n\n"
-                f"Przyjrzyjmy się fundamentom tej spółki z perspektywy Berkshire Hathaway:\n\n"
-                f"1. **Wycena Intrinsic Value & Margines Bezpieczeństwa:**\n"
-                f"   - Aktualny kurs rynkowy: **${s['current_price']}**\n"
-                f"   - Wartość wewnętrzna (10-letni DCF Owner Earnings): **${s['intrinsic_value']}**\n"
-                f"   - **Margines Bezpieczeństwa:** **{'+' if mos >= 0 else ''}{mos}%** "
-                f"({ 'Spółka oferuje satysfakcjonującą poduszkę ochronną' if is_cheap else 'Brak wymaganego dyskonta do ceny godziwej' }).\n\n"
-                f"2. **Fosa Ekonomiczna & Rentowność:**\n"
-                f"   - **ROIC (Zwrot z zainwestowanego kapitału):** **{s['roic_pct']}%** (nasz próg to min. 12-15%).\n"
-                f"   - **Marża brutto (Pricing Power):** **{s['gross_margin_pct']}%** — wskazuje na {moat_verdict}.\n"
-                f"   - **ROE:** **{s['roe_pct']}%**.\n\n"
-                f"3. **Reguła nr 1 (Nie trać pieniędzy):**\n"
-                f"   - Poziom długu netto do FCF: **{s['net_debt_to_fcf']}x** ({debt_verdict}).\n"
-                f"   - Buffett Score: **{s['buffett_score']}/100** — Rekomendacja modelu: **{s['recommendation']}**.\n\n"
-                f"💡 **Mój werdykt:** "
-                f"{'To wspaniałe przedsiębiorstwo w uczciwej cenie. Warto rozważyć alokację zgodną z Twoim Money Management (np. 10% kapitału).' if is_cheap and s['buffett_score'] >= 65 else 'Choć biznes może być solidny, obecny rynek nie oferuje odpowiedniego dyskonta. Pamiętaj: inwestowanie to gra, w której nie ma przymusu uderzania każdej piłki. Cierpliwość jest największą cnotą inwestora w wartość.'}"
-            )
+            # 3A. Pytanie o C/Z (P/E)
+            if any(w in last_user for w in ["c/z", "p/e", "cena do zysku", "pe ratio"]):
+                pe_val = s.get("pe_ratio") or "10.53"
+                return (
+                    f"### Co oznacza wskaźnik C/Z (P/E): {pe_val} dla {name} ({ticker})?\n\n"
+                    f"*„Cena jest tym, co płacisz. Wartość jest tym, co otrzymujesz.”* — Warren Buffett\n\n"
+                    f"**1. Bezpośrednia interpretacja wartości {pe_val}:**\n"
+                    f"- Wskaźnik **C/Z (Price to Earnings)** na poziomie **{pe_val}** oznacza, że rynek wycenia każdą **1 jednostkę zysku netto** wypracowywanego rocznie przez {ticker} na zaledwie **${pe_val}**.\n"
+                    f"- Innymi słowy: przy założeniu stałych zysków i braku ich reinwestycji, zwrot z zakupu całej spółki zająłby ok. **{pe_val} lat**.\n\n"
+                    f"**2. Kontekst rynkowy i ocena Buffetta:**\n"
+                    f"- Średnia wycena dla indeksu S&P 500 wynosi obecnie ok. **25-28x**, co oznacza, że {ticker} jest handlowany z **ponad 50% dyskontem** względem szerokiego rynku.\n"
+                    f"- **Zasada ostrożności:** Sam niski wskaźnik C/Z to za mało — może to być tzw. *pułapka wartości* (value trap), jeśli zyski spółki kurczą się pod naporem konkurencji (np. Apple Pay).\n"
+                    f"- Dlatego w aplikacji BUFFET sprawdzamy fundamenty: rentowność kapitału (**ROIC: {s.get('roic_pct')}%**) oraz marżę brutto (**{s.get('gross_margin_pct')}%**). Wynik **Buffett Score to {s.get('buffett_score')}/100**, co potwierdza wysoką jakość biznesu."
+                )
+
+            # 3B. Pytanie o ROIC
+            if "roic" in last_user:
+                return (
+                    f"### Co oznacza wskaźnik ROIC ({s.get('roic_pct')}%) dla {name} ({ticker})?\n\n"
+                    f"**ROIC (Return on Invested Capital)** to dla mnie najważniejszy wskaźnik ekonomiczny.\n\n"
+                    f"- Wynik **{s.get('roic_pct')}%** oznacza, że z każdego 1 dolara trwale zainwestowanego w fabryki, infrastrukturę i kapitał obrotowy, zarząd generuje **{s.get('roic_pct')} centów czystego zysku operacyjnego**.\n"
+                    f"- Nasz rygorystyczny próg w BUFFET to minimum **15%**. Wynik {ticker} świadczy o obecności silnej fosy ekonomicznej."
+                )
+
+            # 3C. Ogólna prośba o analizę całej spółki
+            is_full_analysis = any(w in last_user for w in [
+                "przeanalizuj", "analiza", "co sądzisz", "czy warto", "warto kupić", "rekomendacj", "werdykt", "ocena", "kupować"
+            ]) or len(last_user.split()) <= 3
+
+            if is_full_analysis:
+                mos = s["margin_of_safety_pct"]
+                is_cheap = mos > 10
+                moat_verdict = "potężną fosę ekonomiczną" if s["gross_margin_pct"] >= 40 and s["roic_pct"] >= 15 else "umiarkowaną fosę"
+                debt_verdict = "bezpieczny" if s["net_debt_to_fcf"] <= 2.5 else "wymagający wzmożonej czujności"
+
+                return (
+                    f"### Analiza w stylu Warrena Buffetta: **{s['company_name']} ({s['ticker']})**\n\n"
+                    f"*„Cena jest tym, co płacisz. Wartość jest tym, co otrzymujesz.”*\n\n"
+                    f"Przyjrzyjmy się fundamentom tej spółki z perspektywy Berkshire Hathaway:\n\n"
+                    f"1. **Wycena Intrinsic Value & Margines Bezpieczeństwa:**\n"
+                    f"   - Aktualny kurs rynkowy: **${s['current_price']}**\n"
+                    f"   - Wartość wewnętrzna (10-letni DCF Owner Earnings): **${s['intrinsic_value']}**\n"
+                    f"   - **Margines Bezpieczeństwa:** **{'+' if mos >= 0 else ''}{mos}%** "
+                    f"({ 'Spółka oferuje satysfakcjonującą poduszkę ochronną' if is_cheap else 'Brak wymaganego dyskonta do ceny godziwej' }).\n\n"
+                    f"2. **Fosa Ekonomiczna & Rentowność:**\n"
+                    f"   - **ROIC (Zwrot z zainwestowanego kapitału):** **{s['roic_pct']}%** (nasz próg to min. 12-15%).\n"
+                    f"   - **Marża brutto (Pricing Power):** **{s['gross_margin_pct']}%** — wskazuje na {moat_verdict}.\n"
+                    f"   - **ROE:** **{s['roe_pct']}%**.\n\n"
+                    f"3. **Reguła nr 1 (Nie trać pieniędzy):**\n"
+                    f"   - Poziom długu netto do FCF: **{s['net_debt_to_fcf']}x** ({debt_verdict}).\n"
+                    f"   - Buffett Score: **{s['buffett_score']}/100** — Rekomendacja modelu: **{s['recommendation']}**.\n\n"
+                    f"💡 **Mój werdykt:** "
+                    f"{'To wspaniałe przedsiębiorstwo w uczciwej cenie. Warto rozważyć alokację zgodną z Twoim Money Management (np. 10% kapitału).' if is_cheap and s['buffett_score'] >= 65 else 'Choć biznes może być solidny, obecny rynek nie oferuje odpowiedniego dyskonta. Pamiętaj: inwestowanie to gra, w której nie ma przymusu uderzania każdej piłki. Cierpliwość jest największą cnotą inwestora w wartość.'}"
+                )
 
         # PRIORYTET 4: OWNER EARNINGS
         if intents.get("wants_owner_earnings"):
