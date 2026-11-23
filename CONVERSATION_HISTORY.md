@@ -123,3 +123,17 @@
 
 ---
 *Dokument zarchiwizowany automatycznie dla celów ciągłości projektu.*
+
+### 4.7. Integracja z Google Firebase (Zapis Danych Użytkownika w Chmurze)
+- **Firebase Client SDK (Frontend):**
+  - Zainstalowano pakiet `firebase` w frontendzie.
+  - Skonfigurowano `frontend/src/config/firebase.js` z `VITE_FIREBASE_*` (Auth + Firestore).
+  - Dodano modal autoryzacji `AuthModal.jsx` z obsługą logowania przez Google (1-click popup) oraz Email + Hasło i trybem gościa.
+  - Dodano wskaźnik stanu chmury w nagłówku `Header.jsx`: `🟢 Firebase Cloud: Zsynchronizowano` vs `⚪ Tryb Lokalny (Gość)` + awatar użytkownika.
+- **Firebase Admin SDK (Backend):**
+  - Zainstalowano `firebase-admin>=7.5.0` w środowisku wirtualnym i `backend/requirements.txt`.
+  - Utworzono moduł `backend/app/services/firebase_service.py` z automatycznym wykrywaniem klucza `firebase-adminsdk.json` i połączeniem z Google Cloud Firestore.
+  - Utworzono router `backend/app/routers/user.py` z endpointami `/api/user/status`, `/api/user/sync` i `/api/user/watchlist`.
+- **Automatyczna synchronizacja:**
+  - Wszystkie pozycje portfela Paper Trading, konfiguracja Money Management, historia zleceń oraz watchlisty użytkownika zapisują się w kolekcji Firestore `buffet_users/{uid}`.
+  - Po zalogowaniu na innym komputerze lub w innej przeglądarce dane użytkownika są natychmiast odtwarzane z chmury Firebase.

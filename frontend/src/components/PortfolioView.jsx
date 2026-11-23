@@ -13,6 +13,8 @@ import {
   LogOut,
   History,
   AlertTriangle,
+  Cloud,
+  LogIn,
 } from 'lucide-react';
 
 function fmtSignedPct(val) {
@@ -44,6 +46,10 @@ export default function PortfolioView({
   onRefresh,
   loading,
   refreshing,
+  user,
+  onOpenAuth,
+  onManualSync,
+  lastSyncTime,
 }) {
   const [showMM, setShowMM] = useState(false);
   const [mmForm, setMmForm] = useState(null);
@@ -182,6 +188,26 @@ export default function PortfolioView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {user ? (
+            <button
+              onClick={onManualSync}
+              title={`Zapisano w Firebase (${lastSyncTime || 'chwilę temu'})`}
+              className="px-2.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-mono font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Zapisano w chmurze</span>
+            </button>
+          ) : (
+            <button
+              onClick={onOpenAuth}
+              title="Zaloguj się, aby zapisywać portfel w Google Firebase"
+              className="px-2.5 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 border border-neutral-300 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <LogIn className="w-3.5 h-3.5 text-neutral-600" />
+              <span>Zaloguj (Zapis Firebase)</span>
+            </button>
+          )}
+
           <button
             onClick={() => setShowMM((v) => !v)}
             className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer border ${

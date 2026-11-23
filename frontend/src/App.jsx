@@ -1,10 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/Header';
 import PortfolioView from './components/PortfolioView';
 import ScreenerView from './components/ScreenerView';
 import DeepDiveView from './components/DeepDiveView';
 import SettingsView from './components/SettingsView';
 import TradeOrderModal from './components/TradeOrderModal';
+import AuthModal from './components/AuthModal';
+import {
+  subscribeToAuthChanges,
+  logoutUser,
+  saveUserDataToFirebase,
+  loadUserDataFromFirebase
+} from './config/firebase';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('portfolio');
@@ -12,6 +19,12 @@ export default function App() {
   const [selectedTicker, setSelectedTicker] = useState('BRK.B');
   const [orderModal, setOrderModal] = useState(null);
   const [tradeNotice, setTradeNotice] = useState(null);
+
+  // Autoryzacja i Firebase Cloud Sync
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('local'); // 'synced', 'syncing', 'local'
+  const [lastSyncTime, setLastSyncTime] = useState(null);
 
   const [portfolioSummary, setPortfolioSummary] = useState(null);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
@@ -22,19 +35,105 @@ export default function App() {
   const [screenerScanning, setScreenerScanning] = useState(false);
   const [alertsChecking, setAlertsChecking] = useState(false);
 
-  const fetchPortfolio = (silent = false) => {
+  // Funkcja synchronizacji stanu do Firebase i backendu
+  const syncToCloud = useCallback(async (user, currentSummary) => {
+    if (!user || !currentSummary) return;
+    setSyncStatus('syncing');
+    try {
+      const payload = {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        portfolio: {
+          total_portfolio_value: currentSummary.total_portfolio_value,
+          total_invested: currentSummary.total_invested,
+          total_pnl_cash: currentSummary.total_pnl_cash,
+          total_pnl_pct: currentSummary.total_pnl_pct,
+          holdings: currentSummary.holdings || [],
+        },
+        mm_config: currentSummary.account_config || null,
+        trades: currentSummary.recent_trades || [],
+      };
+
+      // 1. Zapis bezpośredni do Google Cloud Firestore
+      await saveUserDataToFirebase(user.uid, payload);
+
+      // 2. Powiadomienie backendu API
+      await fetch('/api/user/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      setSyncStatus('synced');
+      setLastSyncTime(new Date().toLocaleTimeString());
+    } catch (err) {
+      console.error('[Cloud Sync Error]', err);
+      setSyncStatus('synced'); // fallback
+    }
+  }, []);
+
+  const fetchPortfolio = useCallback((silent = false) => {
     if (!silent) setPortfolioLoading(true);
     fetch('/api/portfolio')
       .then((res) => res.json())
       .then((data) => {
         setPortfolioSummary(data);
         setPortfolioLoading(false);
+        if (currentUser) {
+          syncToCloud(currentUser, data);
+        }
       })
       .catch((err) => {
         console.error(err);
         setPortfolioLoading(false);
       });
-  };
+  }, [currentUser, syncToCloud]);
+
+  // Nasłuchiwanie stanu autoryzacji Firebase
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges(async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        setSyncStatus('syncing');
+        try {
+          // Pobierz zapisane dane użytkownika z Firestore
+          const cloudData = await loadUserDataFromFirebase(user.uid);
+          if (cloudData && cloudData.portfolio) {
+            console.log('[Firebase] Załadowano dane użytkownika z chmury Firestore:', cloudData);
+            // Wyślij do backendu, aby zsynchronizować lokalny stan
+            await fetch('/api/user/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName,
+                portfolio: cloudData.portfolio,
+                mm_config: cloudData.mm_config,
+                trades: cloudData.trades
+              })
+            });
+            fetchPortfolio(true);
+          } else {
+            // Nowy użytkownik - zapisz bieżący stan początkowy do chmury
+            if (portfolioSummary) {
+              await syncToCloud(user, portfolioSummary);
+            }
+          }
+          setSyncStatus('synced');
+          setLastSyncTime(new Date().toLocaleTimeString());
+        } catch (err) {
+          console.error('[Firebase Auth Sync Error]', err);
+          setSyncStatus('synced');
+        }
+      } else {
+        setSyncStatus('local');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [portfolioSummary, syncToCloud, fetchPortfolio]);
 
   const handleRefreshPortfolio = async () => {
     setPortfolioRefreshing(true);
@@ -43,6 +142,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setPortfolioSummary(data);
+        if (currentUser) syncToCloud(currentUser, data);
       }
     } catch (err) {
       console.error(err);
@@ -60,6 +160,7 @@ export default function App() {
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || 'Błąd zapisu ustawień MM');
     setPortfolioSummary(json);
+    if (currentUser) syncToCloud(currentUser, json);
     return json;
   };
 
@@ -73,6 +174,7 @@ export default function App() {
     if (!res.ok) throw new Error(json.detail || 'Błąd resetowania konta');
     setPortfolioSummary(json);
     fetchScreener(activeProvider, true);
+    if (currentUser) syncToCloud(currentUser, json);
     return json;
   };
 
@@ -226,6 +328,11 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         activeProvider={activeProvider}
+        user={currentUser}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
+        onLogout={logoutUser}
+        syncStatus={syncStatus}
+        onManualSync={() => syncToCloud(currentUser, portfolioSummary)}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
@@ -245,6 +352,10 @@ export default function App() {
             onOpenOrderModal={setOrderModal}
             onSaveMM={handleSaveMM}
             onResetAccount={handleResetAccount}
+            user={currentUser}
+            onOpenAuth={() => setIsAuthModalOpen(true)}
+            onManualSync={() => syncToCloud(currentUser, portfolioSummary)}
+            lastSyncTime={lastSyncTime}
           />
         )}
 
@@ -278,6 +389,10 @@ export default function App() {
           <SettingsView
             activeProvider={activeProvider}
             onUpdateProvider={handleUpdateProvider}
+            user={currentUser}
+            onOpenAuth={() => setIsAuthModalOpen(true)}
+            onManualSync={() => syncToCloud(currentUser, portfolioSummary)}
+            lastSyncTime={lastSyncTime}
           />
         )}
       </main>
@@ -291,9 +406,17 @@ export default function App() {
         onSaveMM={handleSaveMM}
       />
 
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={(user) => {
+          setCurrentUser(user);
+        }}
+      />
+
       <footer className="border-t border-neutral-200 bg-white py-6 text-center text-xs text-neutral-500 font-mono">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>BUFFET &bull; Value Investing & AI Engine &bull; przemokoduje.com</span>
+          <span>BUFFET &bull; Value Investing &amp; AI Engine &bull; przemokoduje.com</span>
           <span className="text-neutral-400">
             Reguła 1: Nigdy nie trać pieniędzy. Reguła 2: Pamiętaj o punkcie 1.
           </span>

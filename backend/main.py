@@ -6,7 +6,7 @@ from app.config import settings
 from app.database.db import Base, engine, SessionLocal
 from app.services.portfolio_tracker import PortfolioTracker
 from app.services.market_scanner import MarketScanner
-from app.routers import screener, analysis, portfolio, settings as settings_router
+from app.routers import screener, analysis, portfolio, settings as settings_router, user
 
 # Inicjalizacja schematu bazy danych (w tym tabel skanera i alertów)
 Base.metadata.create_all(bind=engine)
@@ -54,6 +54,7 @@ app.include_router(screener.router)
 app.include_router(analysis.router)
 app.include_router(portfolio.router)
 app.include_router(settings_router.router)
+app.include_router(user.router)
 
 
 @app.get("/")
