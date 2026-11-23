@@ -38,8 +38,7 @@ function fmtUsd(val) {
 export default function PortfolioView({
   summary,
   onSelectTicker,
-  onSellHolding,
-  onBuyOrder,
+  onOpenOrderModal,
   onSaveMM,
   onResetAccount,
   onRefresh,
@@ -50,7 +49,6 @@ export default function PortfolioView({
   const [mmForm, setMmForm] = useState(null);
   const [mmSaving, setMmSaving] = useState(false);
   const [feedback, setFeedback] = useState(null);
-  const [busyId, setBusyId] = useState(null);
 
   useEffect(() => {
     if (summary?.mm_config) {
@@ -143,44 +141,24 @@ export default function PortfolioView({
     }
   };
 
-  const handleSell = async (h) => {
-    if (
-      !window.confirm(
-        `Sprzedać całą pozycję ${h.ticker} (${h.shares} akcji po ~${fmtUsd(h.current_price)} = ${fmtUsd(h.market_value)}) i zaksięgować wynik?`
-      )
-    ) {
-      return;
-    }
-    setBusyId(h.id);
-    try {
-      const res = await onSellHolding(h.id, null);
-      notify('success', res.message || `Sprzedano ${h.ticker}`);
-    } catch (err) {
-      notify('error', err.message);
-    } finally {
-      setBusyId(null);
-    }
+  const handleSell = (h) => {
+    onOpenOrderModal({
+      mode: 'SELL',
+      ticker: h.ticker,
+      company_name: h.company_name,
+      current_price: h.current_price,
+      holding: h,
+    });
   };
 
-  const handleQuickAdd = async (h) => {
-    const suggested = mm_config?.suggested_order_usd || 5000;
-    const raw = window.prompt(
-      `Dokup ${h.ticker} (aktualny kurs ${fmtUsd(h.current_price)}, dostępna gotówka ponad rezerwę MM: ${fmtUsd(mm_config?.investable_cash_usd)}).\nPodaj kwotę w USD:`,
-      String(Math.min(suggested, mm_config?.investable_cash_usd || suggested))
-    );
-    if (!raw) return;
-    const amt = Number(raw);
-    if (!amt || amt <= 0) return;
-
-    setBusyId(h.id);
-    try {
-      const res = await onBuyOrder({ ticker: h.ticker, amount_usd: amt, note: 'Dokupienie z tabeli portfela' });
-      notify('success', res.message);
-    } catch (err) {
-      notify('error', err.message);
-    } finally {
-      setBusyId(null);
-    }
+  const handleQuickAdd = (h) => {
+    onOpenOrderModal({
+      mode: 'BUY',
+      ticker: h.ticker,
+      company_name: h.company_name,
+      current_price: h.current_price,
+      holding: h,
+    });
   };
 
   return (
@@ -583,17 +561,15 @@ export default function PortfolioView({
                       <div className="flex items-center justify-center gap-1.5">
                         <button
                           onClick={() => handleQuickAdd(h)}
-                          disabled={busyId === h.id}
-                          title="Dokup akcje wg MM"
-                          className="px-2 py-1 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded font-medium inline-flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
+                          title="Dokup akcje (otwiera modal MM)"
+                          className="px-2 py-1 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded font-medium inline-flex items-center gap-0.5 cursor-pointer"
                         >
                           <Plus className="w-3 h-3" /> Kup
                         </button>
                         <button
                           onClick={() => handleSell(h)}
-                          disabled={busyId === h.id}
-                          title="Sprzedaj całą pozycję"
-                          className="px-2 py-1 text-[11px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded font-medium inline-flex items-center gap-0.5 cursor-pointer disabled:opacity-50"
+                          title="Sprzedaj / zamknij pozycję (otwiera modal MM)"
+                          className="px-2 py-1 text-[11px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded font-medium inline-flex items-center gap-0.5 cursor-pointer"
                         >
                           <LogOut className="w-3 h-3" /> Sprzedaj
                         </button>

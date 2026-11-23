@@ -5,28 +5,15 @@ export default function DeepDiveView({
   ticker,
   activeProvider,
   portfolioSummary,
-  onBuyOrder,
+  onOpenOrderModal,
   onOpenSettings,
 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshingAI, setRefreshingAI] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [showOrderBox, setShowOrderBox] = useState(false);
-  const [orderAmount, setOrderAmount] = useState('');
-  const [orderSl, setOrderSl] = useState('');
-  const [orderTp, setOrderTp] = useState('');
   const [message, setMessage] = useState(null);
 
-  const mm = portfolioSummary?.mm_config;
-
-  useEffect(() => {
-    if (mm) {
-      setOrderAmount(String(Math.round(mm.suggested_order_usd || 10000)));
-      setOrderSl(String(mm.default_stop_loss_pct ?? 15));
-      setOrderTp(String(mm.default_take_profit_pct ?? 35));
-    }
-  }, [mm, ticker]);
+  const existingHolding = (portfolioSummary?.holdings || []).find((h) => h.ticker === ticker) || null;
 
   const loadAnalysis = (refreshAi = false) => {
     if (!ticker) return;
@@ -57,27 +44,6 @@ export default function DeepDiveView({
   useEffect(() => {
     loadAnalysis(false);
   }, [ticker, activeProvider]);
-
-  const handleBuySubmit = async (e) => {
-    e.preventDefault();
-    setAdding(true);
-    setMessage(null);
-    try {
-      const res = await onBuyOrder({
-        ticker,
-        amount_usd: orderAmount ? Number(orderAmount) : null,
-        stop_loss_pct: orderSl !== '' ? Number(orderSl) : null,
-        take_profit_pct: orderTp !== '' ? Number(orderTp) : null,
-        note: 'Zlecenie KUP z widoku Deep Dive',
-      });
-      setMessage({ type: 'success', text: res.message || 'Zlecenie KUP zrealizowane!' });
-      setShowOrderBox(false);
-    } catch (err) {
-      setMessage({ type: 'error', text: err.message || 'Błąd zlecenia KUP.' });
-    } finally {
-      setAdding(false);
-    }
-  };
 
   if (loading || !data) {
     return (
@@ -122,101 +88,41 @@ export default function DeepDiveView({
             <div className="text-[11px] font-mono text-neutral-400 uppercase">Aktualny Kurs</div>
             <div className="text-2xl font-serif font-bold text-neutral-900">${fundamental.current_price}</div>
           </div>
-          <button
-            onClick={() => setShowOrderBox((v) => !v)}
-            className="px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg text-xs font-medium transition-all shadow-xs flex items-center gap-2 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{showOrderBox ? 'Ukryj zlecenie' : 'Kup (Paper Trading)'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() =>
+                onOpenOrderModal({
+                  mode: 'BUY',
+                  ticker: fundamental.ticker,
+                  company_name: fundamental.company_name,
+                  current_price: fundamental.current_price,
+                  holding: existingHolding,
+                })
+              }
+              className="px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg text-xs font-medium transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{existingHolding ? 'Dokup (MM)' : 'Kup (Paper Trading)'}</span>
+            </button>
+            {existingHolding && (
+              <button
+                onClick={() =>
+                  onOpenOrderModal({
+                    mode: 'SELL',
+                    ticker: fundamental.ticker,
+                    company_name: fundamental.company_name,
+                    current_price: fundamental.current_price,
+                    holding: existingHolding,
+                  })
+                }
+                className="px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-medium transition-all cursor-pointer"
+              >
+                Sprzedaj / Zamknij
+              </button>
+            )}
+          </div>
         </div>
       </div>
-
-      {showOrderBox && (
-        <form
-          onSubmit={handleBuySubmit}
-          className="bg-white border border-neutral-300 rounded-xl p-5 shadow-xs space-y-4"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 pb-2.5">
-            <h3 className="text-sm font-serif font-bold text-neutral-900">
-              Zlecenie KUP: {fundamental.ticker} po ${fundamental.current_price}
-            </h3>
-            <div className="text-[11px] font-mono text-neutral-500">
-              Dostępna gotówka ponad rezerwę MM:{' '}
-              <strong className="text-emerald-700">
-                ${Number(mm?.investable_cash_usd || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </strong>{' '}
-              &bull; Limit w 1 spółce: <strong>{mm?.max_position_pct ?? 20}%</strong>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
-            <div>
-              <label className="block font-mono text-neutral-600 mb-1">Kwota zakupu ($)</label>
-              <input
-                type="number"
-                min="10"
-                step="10"
-                value={orderAmount}
-                onChange={(e) => setOrderAmount(e.target.value)}
-                className="w-full border border-neutral-300 rounded px-2.5 py-1.5 font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block font-mono text-neutral-600 mb-1">Szac. liczba akcji</label>
-              <div className="w-full border border-neutral-200 bg-neutral-50 rounded px-2.5 py-1.5 font-mono text-neutral-800">
-                {fundamental.current_price > 0 && Number(orderAmount) > 0
-                  ? (mm?.allow_fractional_shares === false
-                      ? Math.floor(Number(orderAmount) / fundamental.current_price)
-                      : (Number(orderAmount) / fundamental.current_price).toFixed(4))
-                  : '0'}
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-mono text-neutral-600 mb-1">Stop-Loss (%)</label>
-              <input
-                type="number"
-                min="0"
-                max="80"
-                value={orderSl}
-                onChange={(e) => setOrderSl(e.target.value)}
-                className="w-full border border-neutral-300 rounded px-2.5 py-1.5 font-mono"
-              />
-            </div>
-
-            <div>
-              <label className="block font-mono text-neutral-600 mb-1">Take-Profit (%)</label>
-              <input
-                type="number"
-                min="0"
-                max="500"
-                value={orderTp}
-                onChange={(e) => setOrderTp(e.target.value)}
-                className="w-full border border-neutral-300 rounded px-2.5 py-1.5 font-mono"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setShowOrderBox(false)}
-              className="px-3 py-2 text-xs text-neutral-600 hover:text-neutral-900 cursor-pointer"
-            >
-              Anuluj
-            </button>
-            <button
-              type="submit"
-              disabled={adding}
-              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white rounded-lg text-xs font-medium cursor-pointer"
-            >
-              {adding ? 'Realizuję zlecenie...' : `Wykonaj KUP (${fundamental.ticker})`}
-            </button>
-          </div>
-        </form>
-      )}
 
       {message && (
         <div

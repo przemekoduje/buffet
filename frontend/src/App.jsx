@@ -4,11 +4,14 @@ import PortfolioView from './components/PortfolioView';
 import ScreenerView from './components/ScreenerView';
 import DeepDiveView from './components/DeepDiveView';
 import SettingsView from './components/SettingsView';
+import TradeOrderModal from './components/TradeOrderModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('portfolio');
   const [activeProvider, setActiveProvider] = useState('yfinance');
   const [selectedTicker, setSelectedTicker] = useState('BRK.B');
+  const [orderModal, setOrderModal] = useState(null);
+  const [tradeNotice, setTradeNotice] = useState(null);
 
   const [portfolioSummary, setPortfolioSummary] = useState(null);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
@@ -86,19 +89,23 @@ export default function App() {
     if (!res.ok) throw new Error(json.detail || 'Błąd zlecenia KUP');
     fetchPortfolio(true);
     fetchScreener(activeProvider, true);
+    setTradeNotice(json.message);
+    setTimeout(() => setTradeNotice(null), 5000);
     return json;
   };
 
-  const handleSellHolding = async (holdingId, shares = null) => {
+  const handleSellHolding = async (holdingId, shares = null, note = '') => {
     const res = await fetch(`/api/portfolio/sell/${holdingId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ shares }),
+      body: JSON.stringify({ shares, note }),
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || 'Błąd sprzedaży pozycji');
     fetchPortfolio(true);
     fetchScreener(activeProvider, true);
+    setTradeNotice(json.message);
+    setTimeout(() => setTradeNotice(null), 5000);
     return json;
   };
 
@@ -222,6 +229,12 @@ export default function App() {
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
+        {tradeNotice && (
+          <div className="mb-5 p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl font-medium">
+            {tradeNotice}
+          </div>
+        )}
+
         {activeTab === 'portfolio' && (
           <PortfolioView
             summary={portfolioSummary}
@@ -229,8 +242,7 @@ export default function App() {
             refreshing={portfolioRefreshing}
             onRefresh={handleRefreshPortfolio}
             onSelectTicker={handleSelectTicker}
-            onSellHolding={handleSellHolding}
-            onBuyOrder={handleBuyOrder}
+            onOpenOrderModal={setOrderModal}
             onSaveMM={handleSaveMM}
             onResetAccount={handleResetAccount}
           />
@@ -244,6 +256,7 @@ export default function App() {
             alertsChecking={alertsChecking}
             activeProvider={activeProvider}
             onSelectTicker={handleSelectTicker}
+            onOpenOrderModal={setOrderModal}
             onScanCustom={handleScanCustom}
             onRunEodScan={handleRunEodScan}
             onCheckAlerts={handleCheckAlerts}
@@ -255,7 +268,7 @@ export default function App() {
             ticker={selectedTicker}
             activeProvider={activeProvider}
             portfolioSummary={portfolioSummary}
-            onBuyOrder={handleBuyOrder}
+            onOpenOrderModal={setOrderModal}
             onBackToScreener={() => setActiveTab('screener')}
             onOpenSettings={() => setActiveTab('settings')}
           />
@@ -268,6 +281,15 @@ export default function App() {
           />
         )}
       </main>
+
+      <TradeOrderModal
+        order={orderModal}
+        portfolioSummary={portfolioSummary}
+        onClose={() => setOrderModal(null)}
+        onExecuteBuy={handleBuyOrder}
+        onExecuteSell={handleSellHolding}
+        onSaveMM={handleSaveMM}
+      />
 
       <footer className="border-t border-neutral-200 bg-white py-6 text-center text-xs text-neutral-500 font-mono">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">

@@ -31,6 +31,7 @@ const REC_STYLES = {
 export default function ScreenerView({
   screenerData,
   onSelectTicker,
+  onOpenOrderModal,
   onScanCustom,
   onRunEodScan,
   onCheckAlerts,
@@ -512,13 +513,28 @@ export default function ScreenerView({
                       </td>
 
                       <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={() => onSelectTicker(item.ticker)}
-                          className="px-2.5 py-1 text-xs bg-neutral-900 hover:bg-neutral-800 text-white rounded font-medium transition-colors flex items-center gap-1 mx-auto cursor-pointer"
-                        >
-                          <Sparkles className="w-3 h-3" />
-                          Analiza
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() =>
+                              onOpenOrderModal({
+                                mode: 'BUY',
+                                ticker: item.ticker,
+                                company_name: item.company_name,
+                                current_price: item.current_price,
+                              })
+                            }
+                            className="px-2 py-1 text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded font-medium transition-colors cursor-pointer"
+                          >
+                            Kup
+                          </button>
+                          <button
+                            onClick={() => onSelectTicker(item.ticker)}
+                            className="px-2.5 py-1 text-xs bg-neutral-900 hover:bg-neutral-800 text-white rounded font-medium transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            Analiza
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
