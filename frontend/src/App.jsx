@@ -7,18 +7,20 @@ import SettingsView from './components/SettingsView';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('portfolio');
-  const [activeProvider, setActiveProvider] = useState('mock');
+  const [activeProvider, setActiveProvider] = useState('yfinance');
   const [selectedTicker, setSelectedTicker] = useState('BRK.B');
 
   const [portfolioSummary, setPortfolioSummary] = useState(null);
   const [portfolioLoading, setPortfolioLoading] = useState(true);
+  const [portfolioRefreshing, setPortfolioRefreshing] = useState(false);
 
   const [screenerData, setScreenerData] = useState(null);
   const [screenerLoading, setScreenerLoading] = useState(true);
+  const [screenerScanning, setScreenerScanning] = useState(false);
+  const [alertsChecking, setAlertsChecking] = useState(false);
 
-  // Pobierz dane portfela
-  const fetchPortfolio = () => {
-    setPortfolioLoading(true);
+  const fetchPortfolio = (silent = false) => {
+    if (!silent) setPortfolioLoading(true);
     fetch('/api/portfolio')
       .then((res) => res.json())
       .then((data) => {
@@ -31,10 +33,78 @@ export default function App() {
       });
   };
 
-  // Pobierz dane screenera
-  const fetchScreener = () => {
-    setScreenerLoading(true);
-    fetch(`/api/screener?provider_name=${activeProvider}`)
+  const handleRefreshPortfolio = async () => {
+    setPortfolioRefreshing(true);
+    try {
+      const res = await fetch('/api/portfolio/refresh', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setPortfolioSummary(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPortfolioRefreshing(false);
+    }
+  };
+
+  const handleSaveMM = async (mmUpdates) => {
+    const res = await fetch('/api/portfolio/mm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(mmUpdates),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.detail || 'Błąd zapisu ustawień MM');
+    setPortfolioSummary(json);
+    return json;
+  };
+
+  const handleResetAccount = async (initialCapital) => {
+    const res = await fetch('/api/portfolio/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initial_capital: initialCapital }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.detail || 'Błąd resetowania konta');
+    setPortfolioSummary(json);
+    fetchScreener(activeProvider, true);
+    return json;
+  };
+
+  const handleBuyOrder = async (orderPayload) => {
+    const res = await fetch('/api/portfolio/buy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...orderPayload,
+        provider_name: activeProvider,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.detail || 'Błąd zlecenia KUP');
+    fetchPortfolio(true);
+    fetchScreener(activeProvider, true);
+    return json;
+  };
+
+  const handleSellHolding = async (holdingId, shares = null) => {
+    const res = await fetch(`/api/portfolio/sell/${holdingId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shares }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.detail || 'Błąd sprzedaży pozycji');
+    fetchPortfolio(true);
+    fetchScreener(activeProvider, true);
+    return json;
+  };
+
+  const fetchScreener = (provider = activeProvider, silent = false) => {
+    if (!silent) setScreenerLoading(true);
+    fetch(`/api/screener?provider_name=${provider}`)
       .then((res) => res.json())
       .then((data) => {
         setScreenerData(data);
@@ -46,23 +116,82 @@ export default function App() {
       });
   };
 
-  // Pobierz ustawienia i początkowe dane
+  const handleRunEodScan = async () => {
+    setScreenerScanning(true);
+    try {
+      const res = await fetch(`/api/screener/run-eod?provider_name=${activeProvider}&sync=true`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        await fetchScreener(activeProvider, true);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setScreenerScanning(false);
+    }
+  };
+
+  const handleCheckAlerts = async () => {
+    setAlertsChecking(true);
+    try {
+      const res = await fetch('/api/screener/alerts/check', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setScreenerData((prev) =>
+          prev
+            ? {
+                ...prev,
+                alerts: data.alerts || prev.alerts,
+                market_session: data.market_session || prev.market_session,
+              }
+            : prev
+        );
+        fetchScreener(activeProvider, true);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAlertsChecking(false);
+    }
+  };
+
   useEffect(() => {
     fetch('/api/settings')
       .then((res) => res.json())
       .then((data) => {
-        setActiveProvider(data.active_data_provider);
+        const prov = data.active_data_provider || 'yfinance';
+        setActiveProvider(prov);
+        fetchScreener(prov);
       })
-      .catch(console.error);
+      .catch((err) => {
+        console.error(err);
+        fetchScreener('yfinance');
+      });
 
     fetchPortfolio();
-    fetchScreener();
   }, []);
 
-  // Odśwież screener przy zmianie dostawcy
   useEffect(() => {
-    fetchScreener();
-  }, [activeProvider]);
+    if (activeTab !== 'screener') return;
+    const interval = setInterval(() => {
+      fetch('/api/screener/alerts')
+        .then((res) => res.json())
+        .then((data) => {
+          setScreenerData((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  alerts: data.alerts || prev.alerts,
+                  market_session: data.market_session || prev.market_session,
+                }
+              : prev
+          );
+        })
+        .catch(() => {});
+    }, 300000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
 
   const handleSelectTicker = (ticker) => {
     setSelectedTicker(ticker);
@@ -78,26 +207,10 @@ export default function App() {
     return data;
   };
 
-  const handleAddToDemo = async (ticker) => {
-    const res = await fetch(`/api/analysis/${ticker}/add-to-demo`, { method: 'POST' });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.detail || 'Błąd zapisu');
-    fetchPortfolio();
-    return json;
-  };
-
-  const handleRemoveHolding = async (holdingId) => {
-    if (!window.confirm('Czy na pewno chcesz zamknąć tę pozycję w portfelu demo?')) return;
-    try {
-      await fetch(`/api/portfolio/${holdingId}`, { method: 'DELETE' });
-      fetchPortfolio();
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   const handleUpdateProvider = (newProvider) => {
     setActiveProvider(newProvider);
+    fetchScreener(newProvider);
+    fetchPortfolio();
   };
 
   return (
@@ -113,8 +226,13 @@ export default function App() {
           <PortfolioView
             summary={portfolioSummary}
             loading={portfolioLoading}
+            refreshing={portfolioRefreshing}
+            onRefresh={handleRefreshPortfolio}
             onSelectTicker={handleSelectTicker}
-            onRemoveHolding={handleRemoveHolding}
+            onSellHolding={handleSellHolding}
+            onBuyOrder={handleBuyOrder}
+            onSaveMM={handleSaveMM}
+            onResetAccount={handleResetAccount}
           />
         )}
 
@@ -122,17 +240,24 @@ export default function App() {
           <ScreenerView
             screenerData={screenerData}
             loading={screenerLoading}
+            scanning={screenerScanning}
+            alertsChecking={alertsChecking}
             activeProvider={activeProvider}
             onSelectTicker={handleSelectTicker}
             onScanCustom={handleScanCustom}
+            onRunEodScan={handleRunEodScan}
+            onCheckAlerts={handleCheckAlerts}
           />
         )}
 
         {activeTab === 'deepdive' && (
           <DeepDiveView
             ticker={selectedTicker}
-            onAddToDemo={handleAddToDemo}
+            activeProvider={activeProvider}
+            portfolioSummary={portfolioSummary}
+            onBuyOrder={handleBuyOrder}
             onBackToScreener={() => setActiveTab('screener')}
+            onOpenSettings={() => setActiveTab('settings')}
           />
         )}
 
@@ -144,7 +269,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Minimalist Footer */}
       <footer className="border-t border-neutral-200 bg-white py-6 text-center text-xs text-neutral-500 font-mono">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>BUFFET &bull; Value Investing & AI Engine &bull; przemokoduje.com</span>
