@@ -235,31 +235,34 @@ class ChatAgent:
         # Pobierz dane dla wykrytych spółek
         stocks_info = []
         for t in tickers[:3]:
-            data = provider.get_fundamental_data(t)
-            if data:
-                eval_res = BuffettCalculator.evaluate(data)
-                news = provider.get_recent_news(t, limit=3)
-                stocks_info.append({
-                    "ticker": t,
-                    "company_name": data.company_name,
-                    "sector": data.sector,
-                    "current_price": data.current_price,
-                    "intrinsic_value": eval_res["intrinsic_value"],
-                    "margin_of_safety_pct": eval_res["margin_of_safety_pct"],
-                    "buffett_score": eval_res["buffett_score"],
-                    "recommendation": eval_res["recommendation"],
-                    "roic_pct": data.roic_pct,
-                    "roe_pct": data.roe_pct,
-                    "gross_margin_pct": data.gross_margin_pct,
-                    "net_debt_to_fcf": data.net_debt_to_fcf,
-                    "pe_ratio": data.pe_ratio,
-                    "rule_1_risk": eval_res["rule_1_risk_level"],
-                    "rule_1_warnings": eval_res["rule_1_warnings"],
-                    "recent_news": [
-                        {"title": n.get("title"), "publisher": n.get("publisher"), "url": n.get("url")}
-                        for n in news[:2]
-                    ]
-                })
+            try:
+                data = provider.get_ticker_data(t)
+                if data:
+                    eval_res = BuffettCalculator.evaluate(data)
+                    news = provider.get_ticker_news(t, limit=3) or []
+                    stocks_info.append({
+                        "ticker": t,
+                        "company_name": data.company_name,
+                        "sector": data.sector,
+                        "current_price": data.current_price,
+                        "intrinsic_value": eval_res["intrinsic_value"],
+                        "margin_of_safety_pct": eval_res["margin_of_safety_pct"],
+                        "buffett_score": eval_res["buffett_score"],
+                        "recommendation": eval_res["recommendation"],
+                        "roic_pct": data.roic_pct,
+                        "roe_pct": data.roe_pct,
+                        "gross_margin_pct": data.gross_margin_pct,
+                        "net_debt_to_fcf": data.net_debt_to_fcf,
+                        "pe_ratio": data.pe_ratio,
+                        "rule_1_risk": eval_res.get("rule_number_one_risk") or eval_res.get("rule_1_risk_level", "LOW"),
+                        "rule_1_warnings": eval_res.get("rule_1_warnings", []),
+                        "recent_news": [
+                            {"title": n.get("title"), "publisher": n.get("publisher"), "url": n.get("url")}
+                            for n in news[:2]
+                        ]
+                    })
+            except Exception as e:
+                print(f"[ChatAgent Error fetching ticker {t}] {e}")
         if stocks_info:
             context_data["analyzed_stocks"] = stocks_info
 
@@ -435,6 +438,34 @@ DODATKOWE DANE OD UŻYTKOWNIKA (JEŚLI PODANE):
             if m.get("role") == "user":
                 last_user = m.get("content", "").lower()
                 break
+
+        # Scenariusz 1: Pytanie o konkretną spółkę (zawsze priorytet)
+        if "analyzed_stocks" in context_data and context_data["analyzed_stocks"]:
+            s = context_data["analyzed_stocks"][0]
+            mos = s["margin_of_safety_pct"]
+            is_cheap = mos > 10
+            moat_verdict = "potężną fosę ekonomiczną" if s["gross_margin_pct"] >= 40 and s["roic_pct"] >= 15 else "umiarkowaną fosę"
+            debt_verdict = "bezpieczny" if s["net_debt_to_fcf"] <= 2.5 else "wymagający wzmożonej czujności"
+
+            return (
+                f"### Analiza w stylu Warrena Buffetta: **{s['company_name']} ({s['ticker']})**\n\n"
+                f"*„Cena jest tym, co płacisz. Wartość jest tym, co otrzymujesz.”*\n\n"
+                f"Przyjrzyjmy się fundamentom tej spółki z perspektywy Berkshire Hathaway:\n\n"
+                f"1. **Wycena Intrinsic Value & Margines Bezpieczeństwa:**\n"
+                f"   - Aktualny kurs rynkowy: **${s['current_price']}**\n"
+                f"   - Wartość wewnętrzna (10-letni DCF Owner Earnings): **${s['intrinsic_value']}**\n"
+                f"   - **Margines Bezpieczeństwa:** **{'+' if mos >= 0 else ''}{mos}%** "
+                f"({ 'Spółka oferuje satysfakcjonującą poduszkę ochronną' if is_cheap else 'Brak wymaganego dyskonta do ceny godziwej' }).\n\n"
+                f"2. **Fosa Ekonomiczna & Rentowność:**\n"
+                f"   - **ROIC (Zwrot z zainwestowanego kapitału):** **{s['roic_pct']}%** (nasz próg to min. 12-15%).\n"
+                f"   - **Marża brutto (Pricing Power):** **{s['gross_margin_pct']}%** — wskazuje na {moat_verdict}.\n"
+                f"   - **ROE:** **{s['roe_pct']}%**.\n\n"
+                f"3. **Reguła nr 1 (Nie trać pieniędzy):**\n"
+                f"   - Poziom długu netto do FCF: **{s['net_debt_to_fcf']}x** ({debt_verdict}).\n"
+                f"   - Buffett Score: **{s['buffett_score']}/100** — Rekomendacja modelu: **{s['recommendation']}**.\n\n"
+                f"💡 **Mój werdykt:** "
+                f"{'To wspaniałe przedsiębiorstwo w uczciwej cenie. Warto rozważyć alokację zgodną z Twoim Money Management (np. 10% kapitału).' if is_cheap and s['buffett_score'] >= 65 else 'Choć biznes może być solidny, obecny rynek nie oferuje odpowiedniego dyskonta. Pamiętaj: inwestowanie to gra, w której nie ma przymusu uderzania każdej piłki. Cierpliwość jest największą cnotą inwestora w wartość.'}"
+            )
 
         # Scenariusz: Pytanie o Owner Earnings
         if any(w in last_user for w in ["owner earnings", "zysk właścicielski", "właścicielsk"]):
