@@ -6,9 +6,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import yfinance as yf
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database.db import SessionLocal
+from app.database.db import SessionLocal, engine
 from app.database.models import MarketAlert, MarketScanResult, PortfolioHolding
 from app.providers import get_market_provider
 from app.services.buffett_calculator import BuffettCalculator
@@ -30,6 +31,16 @@ BASKETS: Dict[str, Dict[str, Any]] = {
             "NVDA", "META", "SPGI", "MCO", "INTU", "ORCL", "ADBE",
         ],
     },
+    "nasdaq_100": {
+        "id": "nasdaq_100",
+        "name": "NASDAQ 100 Leaders",
+        "subtitle": "Liderzy technologii, półprzewodników, chmury i konsumpcji z NASDAQ",
+        "tickers": [
+            "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO",
+            "TSLA", "COST", "NFLX", "AMD", "ADBE", "PEP", "CSCO",
+            "TMUS", "INTU", "QCOM", "TXN", "AMAT", "BKNG", "ISRG", "PANW",
+        ],
+    },
     "sp500_value": {
         "id": "sp500_value",
         "name": "S&P 500 Value",
@@ -46,6 +57,36 @@ BASKETS: Dict[str, Dict[str, Any]] = {
         "tickers": [
             "KO", "JNJ", "PG", "PEP", "ABT", "MCD", "WMT",
             "LOW", "CL", "CAT", "SHW", "ADP", "CB", "NEE",
+        ],
+    },
+    "small_tech_startups": {
+        "id": "small_tech_startups",
+        "name": "Małe Tech & AI / Startupy",
+        "subtitle": "Młode i mniejsze spółki AI, Fintech, SaaS i Space z giełdy USA",
+        "tickers": [
+            "SOFI", "HOOD", "PLTR", "PATH", "GTLB", "CFLT", "DOCN",
+            "NET", "IOT", "RKLB", "IONQ", "SOUN", "UPST", "AFRM",
+            "TOST", "DUOL", "SMCI", "HIMS",
+        ],
+    },
+    "affordable_under_50": {
+        "id": "affordable_under_50",
+        "name": "Tanie Walory USA (< $50)",
+        "subtitle": "Dostępne cenowo akcje dla mniejszego kapitału (NYSE / NASDAQ)",
+        "tickers": [
+            "SOFI", "F", "BAC", "CMCSA", "INTC", "PFE", "T", "VZ",
+            "WBD", "NU", "RKLB", "HOOD", "PATH", "HPQ", "KMI",
+            "CSCO", "SNAP", "BROS",
+        ],
+    },
+    "small_mid_value": {
+        "id": "small_mid_value",
+        "name": "Small & Mid-Cap Value",
+        "subtitle": "Mniejsze spółki USA z wysokim ROIC i FCF — wczesny styl Buffetta",
+        "tickers": [
+            "CROX", "BOOT", "FIVE", "ELF", "CELH", "DECK", "TXRH",
+            "SHAK", "CAVA", "FOUR", "PAYO", "STNE", "ONON", "LULU",
+            "ACLS", "LSCC",
         ],
     },
 }
@@ -130,6 +171,17 @@ class MarketScanner:
         }
 
     @classmethod
+    def _ensure_scan_schema(cls):
+        try:
+            with engine.connect() as conn:
+                cols = [row[1] for row in conn.execute(text("PRAGMA table_info(market_scan_results)")).fetchall()]
+                if cols and "market_cap" not in cols:
+                    conn.execute(text("ALTER TABLE market_scan_results ADD COLUMN market_cap REAL DEFAULT 0.0"))
+                    conn.commit()
+        except Exception as e:
+            print(f"[MarketScanner schema check] {e}")
+
+    @classmethod
     def run_market_scan(
         cls,
         db: Session,
@@ -138,6 +190,7 @@ class MarketScanner:
         bypass_cache: bool = False,
     ) -> Dict[str, Any]:
         """Pełny skan wszystkich koszyków z zapisem wyników do SQLite."""
+        cls._ensure_scan_schema()
         if cls._scan_in_progress:
             return {"status": "ALREADY_RUNNING", "scanned": 0}
 
@@ -190,6 +243,7 @@ class MarketScanner:
                     row.industry = fund.industry
                     row.baskets = baskets_csv
                     row.current_price = round(fund.current_price, 2)
+                    row.market_cap = round(fund.market_cap, 2)
                     row.intrinsic_value = round(ev["intrinsic_value"], 2)
                     row.margin_of_safety_pct = ev["margin_of_safety_pct"]
                     row.buffett_score = int(ev["buffett_score"])
@@ -439,6 +493,7 @@ class MarketScanner:
         buffett_picks_only: bool = False,
         provider_name: Optional[str] = None,
     ) -> Dict[str, Any]:
+        cls._ensure_scan_schema()
         rows = db.query(MarketScanResult).all()
 
         # Jeśli tabela skanowania jest pusta (pierwsze uruchomienie), wykonaj wstępny skan
@@ -480,6 +535,16 @@ class MarketScanner:
                 continue
 
             holding = holdings_map.get(r.ticker)
+            mcap_val = float(getattr(r, "market_cap", 0.0) or 0.0)
+            if mcap_val > 0 and mcap_val < 10e9:
+                cap_tier = "SMALL"
+            elif mcap_val >= 10e9 and mcap_val < 50e9:
+                cap_tier = "MID"
+            elif mcap_val >= 50e9:
+                cap_tier = "LARGE"
+            else:
+                cap_tier = "UNKNOWN"
+
             items.append({
                 "ticker": r.ticker,
                 "company_name": r.company_name,
@@ -487,6 +552,8 @@ class MarketScanner:
                 "industry": r.industry,
                 "baskets": row_baskets,
                 "current_price": r.current_price,
+                "market_cap": mcap_val,
+                "cap_tier": cap_tier,
                 "intrinsic_value": r.intrinsic_value,
                 "margin_of_safety_pct": r.margin_of_safety_pct,
                 "buffett_score": r.buffett_score,

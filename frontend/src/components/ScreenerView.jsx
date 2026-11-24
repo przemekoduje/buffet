@@ -17,8 +17,12 @@ import {
 
 const BASKET_LABELS = {
   us_quality: { label: 'US Quality', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  nasdaq_100: { label: 'NASDAQ 100', cls: 'bg-sky-50 text-sky-700 border-sky-200' },
   sp500_value: { label: 'S&P 500 Value', cls: 'bg-amber-50 text-amber-800 border-amber-200' },
   dividend_aristocrats: { label: 'Arystokraci', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  small_tech_startups: { label: 'Małe Tech & AI', cls: 'bg-purple-50 text-purple-700 border-purple-200' },
+  affordable_under_50: { label: 'Tanie < $50', cls: 'bg-teal-50 text-teal-800 border-teal-200' },
+  small_mid_value: { label: 'Small/Mid Value', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
 };
 
 const REC_STYLES = {
@@ -41,6 +45,8 @@ export default function ScreenerView({
 }) {
   const [activeBasket, setActiveBasket] = useState('all');
   const [minScore, setMinScore] = useState(0);
+  const [maxPrice, setMaxPrice] = useState(0); // 0 = brak limitu
+  const [capFilter, setCapFilter] = useState('all'); // all, SMALL, MID, LARGE
   const [undervaluedOnly, setUndervaluedOnly] = useState(false);
   const [buffettPicksOnly, setBuffettPicksOnly] = useState(false);
   const [hideInPortfolio, setHideInPortfolio] = useState(false);
@@ -55,6 +61,8 @@ export default function ScreenerView({
   const filteredItems = items.filter((item) => {
     if (activeBasket !== 'all' && !(item.baskets || []).includes(activeBasket)) return false;
     if (item.buffett_score < minScore) return false;
+    if (maxPrice > 0 && item.current_price > maxPrice) return false;
+    if (capFilter !== 'all' && item.cap_tier !== capFilter) return false;
     if (undervaluedOnly && item.margin_of_safety_pct <= 0) return false;
     if (buffettPicksOnly && !item.is_buffett_pick) return false;
     if (hideInPortfolio && item.in_paper_trading) return false;
@@ -106,8 +114,8 @@ export default function ScreenerView({
               )}
             </div>
             <p className="text-xs text-neutral-500 mt-1">
-              Automatyczny skan koszyków (<strong>US Quality</strong>, <strong>S&P 500 Value</strong>,{' '}
-              <strong>Dywidendowi Arystokraci</strong>) po zamknięciu sesji USA ({session?.next_eod_schedule || '16:15 ET'}) oraz alerty sesyjne co 15 min.
+              Giełda USA (NYSE / NASDAQ): 7 koszyków tematycznych (od <strong>US Quality</strong> i <strong>NASDAQ 100</strong> po{' '}
+              <strong>Małe Tech &amp; AI</strong>, <strong>Tanie &lt; $50</strong> i <strong>Small/Mid Value</strong>). Skan EOD po zamknięciu sesji ({session?.next_eod_schedule || '16:15 ET'}).
             </p>
           </div>
 
@@ -321,6 +329,34 @@ export default function ScreenerView({
               <option value={50}>Dobre (50+)</option>
               <option value={65}>Warte uwagi (65+)</option>
               <option value={80}>Klasa Buffetta (80+)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-neutral-500 font-mono">Maks. cena:</span>
+            <select
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(Number(e.target.value))}
+              className="border border-neutral-300 rounded px-2 py-1 text-xs focus:outline-none font-mono"
+            >
+              <option value={0}>Dowolna</option>
+              <option value={25}>Do $25</option>
+              <option value={50}>Do $50</option>
+              <option value={100}>Do $100</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-neutral-500 font-mono">Rozmiar (Cap):</span>
+            <select
+              value={capFilter}
+              onChange={(e) => setCapFilter(e.target.value)}
+              className="border border-neutral-300 rounded px-2 py-1 text-xs focus:outline-none font-mono"
+            >
+              <option value="all">Wszystkie</option>
+              <option value="SMALL">Small Cap (&lt; $10 mld)</option>
+              <option value="MID">Mid Cap ($10–50 mld)</option>
+              <option value="LARGE">Large/Mega (&gt; $50 mld)</option>
             </select>
           </div>
 

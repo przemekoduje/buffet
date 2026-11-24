@@ -226,3 +226,24 @@
 - **Precyzyjny Fallback i Tabele Porównawcze:**
   - Zlikwidowano problem ślepego wypluwania raportu DCF dla całej spółki przy pytaniach o pojedynczy wskaźnik. Jeśli użytkownik pyta o C/Z (P/E), agent wyjaśnia dokładnie ten parametr, generuje tabelę porównawczą (Spółka vs S&P 500 vs Wymóg Buffetta) oraz wzór KaTeX.
   - Zaktualizowano prompt systemowy Gemini AI wymuszający stosowanie profesjonalnej notacji matematycznej KaTeX `$$...$$` i tabel porównawczych.
+
+
+---
+
+## 5. Dziennik Sesji — 2026-11-24
+
+### 5.1. Odporna inicjalizacja Firebase i pełne odtwarzanie portfela z Firestore
+- **Guard inicjalizacji klienta (`frontend/src/config/firebase.js`):** zabezpieczono start aplikacji przed brakiem `frontend/.env` (`VITE_FIREBASE_*`) — aplikacja startuje płynnie w trybie lokalnym (Gość) zamiast rzucać `auth/invalid-api-key`.
+- **Odtwarzanie chmury do SQLite (`backend/app/routers/user.py`, `frontend/src/App.jsx`):**
+  - Dodano endpointy `POST /api/user/restore` oraz `POST /api/user/load/{uid}` (odczyt przez Firebase Admin SDK i zapis pozycji, salda gotówki, reguł MM oraz zleceń do lokalnego SQLite).
+  - Poprawiono subskrypcję `subscribeToAuthChanges` (usunięto pętlę przeładowań) oraz mapowanie pól `mm_config` i `trades` przy synchronizacji do Firestore.
+  - Skonfigurowano lokalny `frontend/.env` oraz klucz `backend/firebase-adminsdk.json` dla projektu `buffet-3620c` (poza gitem).
+
+### 5.2. Rozbudowa Screenera USA (7 koszyków, małe/tanie spółki) i FMP API
+- **7 koszyków rynku USA (`backend/app/services/market_scanner.py`, ~96 unikalnych spółek NYSE/NASDAQ):**
+  - `us_quality` (US Quality), `nasdaq_100` (NASDAQ 100 Leaders), `sp500_value` (S&P 500 Value), `dividend_aristocrats` (Dywidendowi Arystokraci), `small_tech_startups` (Małe Tech & AI / Startupy), `affordable_under_50` (Tanie Walory USA < $50), `small_mid_value` (Small & Mid-Cap Value).
+- **Filtry dla małego inwestora (`frontend/src/components/ScreenerView.jsx`, `backend/app/database/models.py`):**
+  - Dodano kolumnę `market_cap` (z auto-migracją SQLite) oraz filtry **Maks. cena akcji** (`Do $25`, `Do $50`, `Do $100`) i **Rozmiar (Cap)** (`Small Cap < $10 mld`, `Mid Cap $10–50 mld`, `Large/Mega > $50 mld`).
+- **Ulepszony adapter Financial Modeling Prep (`backend/app/providers/fmp_provider.py`, `backend/app/routers/settings.py`):**
+  - Migracja na nowoczesne endpointy FMP `/stable/...` (z fallbackiem do `/api/v3/...`), obsługa 5-letnich sprawozdań, Altman Z-Score, newsów, S&P 500 i serwerowego `screen_us_stocks()` (`/stable/company-screener`).
+  - Auto-fallback do `yfinance` przy wyczerpaniu limitu FMP + endpoint diagnostyczny `GET /api/settings/test-fmp`.

@@ -124,6 +124,7 @@ class MarketScanResult(Base):
     baskets = Column(String(120), default="")  # np. "us_quality,dividend_aristocrats"
 
     current_price = Column(Float, nullable=False)
+    market_cap = Column(Float, default=0.0)
     intrinsic_value = Column(Float, nullable=False)
     margin_of_safety_pct = Column(Float, nullable=False)
     buffett_score = Column(Integer, nullable=False)

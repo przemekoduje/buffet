@@ -33,9 +33,9 @@ def get_current_settings():
             },
             {
                 "id": "fmp",
-                "name": "Financial Modeling Prep (FMP)",
-                "cost": "~$19-29 / mc",
-                "desc": "Znormalizowane sprawozdania finansowe za 30 lat, transkrypty z zarządem (wymaga klucza FMP)",
+                "name": "Financial Modeling Prep (FMP + Auto-Fallback)",
+                "cost": "Free 250/dz. / $19+",
+                "desc": "Znormalizowane sprawozdania USA (5-30 lat), serwerowy screener tanich spółek i newsy (z płynnym fallbackiem do Yahoo Finance)",
             },
             {
                 "id": "mock",
@@ -73,3 +73,9 @@ def update_settings(payload: UpdateSettingsPayload):
         "has_gemini_key": bool(settings.GEMINI_API_KEY),
         "gemini_model": settings.GEMINI_MODEL,
     }
+
+
+@router.get("/test-fmp")
+def test_fmp_connection():
+    from app.providers.fmp_provider import FMPDataProvider
+    return FMPDataProvider().test_connection()

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from './components/Header';
 import PortfolioView from './components/PortfolioView';
 import ScreenerView from './components/ScreenerView';
@@ -37,6 +37,8 @@ export default function App() {
   const [screenerScanning, setScreenerScanning] = useState(false);
   const [alertsChecking, setAlertsChecking] = useState(false);
 
+  const hasRestoredUidRef = useRef(null);
+
   // Funkcja synchronizacji stanu do Firebase i backendu
   const syncToCloud = useCallback(async (user, currentSummary) => {
     if (!user || !currentSummary) return;
@@ -47,14 +49,17 @@ export default function App() {
         email: user.email,
         displayName: user.displayName,
         portfolio: {
+          initial_capital: currentSummary.initial_capital,
+          cash_balance: currentSummary.cash_balance,
+          realized_pnl_cash: currentSummary.realized_pnl_cash,
           total_portfolio_value: currentSummary.total_portfolio_value,
           total_invested: currentSummary.total_invested,
           total_pnl_cash: currentSummary.total_pnl_cash,
           total_pnl_pct: currentSummary.total_pnl_pct,
           holdings: currentSummary.holdings || [],
         },
-        mm_config: currentSummary.account_config || null,
-        trades: currentSummary.recent_trades || [],
+        mm_config: currentSummary.mm_config || currentSummary.account_config || null,
+        trades: currentSummary.trades || currentSummary.recent_trades || [],
       };
 
       // 1. Zapis bezpośredni do Google Cloud Firestore
@@ -71,18 +76,18 @@ export default function App() {
       setLastSyncTime(new Date().toLocaleTimeString());
     } catch (err) {
       console.error('[Cloud Sync Error]', err);
-      setSyncStatus('synced'); // fallback
+      setSyncStatus('synced');
     }
   }, []);
 
-  const fetchPortfolio = useCallback((silent = false) => {
+  const fetchPortfolio = useCallback((silent = false, shouldSync = false) => {
     if (!silent) setPortfolioLoading(true);
     fetch('/api/portfolio')
       .then((res) => res.json())
       .then((data) => {
         setPortfolioSummary(data);
         setPortfolioLoading(false);
-        if (currentUser) {
+        if (shouldSync && currentUser) {
           syncToCloud(currentUser, data);
         }
       })
@@ -92,19 +97,34 @@ export default function App() {
       });
   }, [currentUser, syncToCloud]);
 
-  // Nasłuchiwanie stanu autoryzacji Firebase
+  // Nasłuchiwanie stanu autoryzacji Firebase (jednorazowa subskrypcja)
   useEffect(() => {
     const unsubscribe = subscribeToAuthChanges(async (user) => {
       setCurrentUser(user);
       if (user) {
+        if (hasRestoredUidRef.current === user.uid) return;
+        hasRestoredUidRef.current = user.uid;
         setSyncStatus('syncing');
         try {
-          // Pobierz zapisane dane użytkownika z Firestore
+          // 1. Pobierz i odtwórz dane użytkownika z Firestore przez Backend Admin SDK (omija lokalne ograniczenia reguł klienta)
+          const loadRes = await fetch(`/api/user/load/${user.uid}`, { method: 'POST' });
+          if (loadRes.ok) {
+            const loaded = await loadRes.json();
+            if (loaded.found && loaded.summary) {
+              console.log('[Firebase] Odtworzono portfel z chmury Firestore:', loaded.restored_holdings, 'pozycji');
+              setPortfolioSummary(loaded.summary);
+              setPortfolioLoading(false);
+              fetchScreener(activeProvider, true);
+              setSyncStatus('synced');
+              setLastSyncTime(new Date().toLocaleTimeString());
+              return;
+            }
+          }
+
+          // 2. Fallback: spróbuj odczytać przez Client SDK
           const cloudData = await loadUserDataFromFirebase(user.uid);
           if (cloudData && cloudData.portfolio) {
-            console.log('[Firebase] Załadowano dane użytkownika z chmury Firestore:', cloudData);
-            // Wyślij do backendu, aby zsynchronizować lokalny stan
-            await fetch('/api/user/sync', {
+            const restoreRes = await fetch('/api/user/restore', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -113,14 +133,25 @@ export default function App() {
                 displayName: user.displayName,
                 portfolio: cloudData.portfolio,
                 mm_config: cloudData.mm_config,
-                trades: cloudData.trades
+                trades: cloudData.trades,
+                watchlist: cloudData.watchlist,
               })
             });
-            fetchPortfolio(true);
-          } else {
-            // Nowy użytkownik - zapisz bieżący stan początkowy do chmury
-            if (portfolioSummary) {
-              await syncToCloud(user, portfolioSummary);
+            if (restoreRes.ok) {
+              const restored = await restoreRes.json();
+              if (restored.summary) {
+                setPortfolioSummary(restored.summary);
+                setPortfolioLoading(false);
+                fetchScreener(activeProvider, true);
+              }
+            }
+          } else if (loadRes.ok) {
+            // Tylko gdy backend potwierdził, że dokument naprawdę nie istnieje (nowy użytkownik)
+            const res = await fetch('/api/portfolio');
+            if (res.ok) {
+              const localSummary = await res.json();
+              setPortfolioSummary(localSummary);
+              await syncToCloud(user, localSummary);
             }
           }
           setSyncStatus('synced');
@@ -130,12 +161,13 @@ export default function App() {
           setSyncStatus('synced');
         }
       } else {
+        hasRestoredUidRef.current = null;
         setSyncStatus('local');
       }
     });
 
     return () => unsubscribe();
-  }, [portfolioSummary, syncToCloud, fetchPortfolio]);
+  }, [syncToCloud]);
 
   const handleRefreshPortfolio = async () => {
     setPortfolioRefreshing(true);
@@ -191,7 +223,7 @@ export default function App() {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || 'Błąd zlecenia KUP');
-    fetchPortfolio(true);
+    fetchPortfolio(true, true);
     fetchScreener(activeProvider, true);
     setTradeNotice(json.message);
     setTimeout(() => setTradeNotice(null), 5000);
@@ -206,7 +238,7 @@ export default function App() {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.detail || 'Błąd sprzedaży pozycji');
-    fetchPortfolio(true);
+    fetchPortfolio(true, true);
     fetchScreener(activeProvider, true);
     setTradeNotice(json.message);
     setTimeout(() => setTradeNotice(null), 5000);

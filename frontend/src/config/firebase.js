@@ -26,25 +26,57 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// Inicjalizacja Firebase App (singleton)
-export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const googleProvider = new GoogleAuthProvider();
+export const isFirebaseConfigured = Boolean(
+  firebaseConfig.apiKey && firebaseConfig.projectId
+);
+
+let app = null;
+let auth = null;
+let db = null;
+let googleProvider = null;
+
+if (isFirebaseConfigured) {
+  try {
+    app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    googleProvider = new GoogleAuthProvider();
+  } catch (err) {
+    console.warn("[Firebase] Nie udało się zainicjalizować Firebase — tryb lokalny:", err);
+    app = null;
+    auth = null;
+    db = null;
+    googleProvider = null;
+  }
+} else {
+  console.info("[Firebase] Brak zmiennych VITE_FIREBASE_* w frontend/.env — uruchomiono w trybie lokalnym (Gość).");
+}
+
+export { app, auth, db, googleProvider };
+
+function requireAuth() {
+  if (!auth) {
+    throw new Error("Brak konfiguracji Firebase (frontend/.env). Aplikacja działa obecnie w trybie lokalnym.");
+  }
+  return auth;
+}
 
 // Funkcje autoryzacji
 export async function loginWithGoogle() {
-  const result = await signInWithPopup(auth, googleProvider);
+  const a = requireAuth();
+  const result = await signInWithPopup(a, googleProvider);
   return result.user;
 }
 
 export async function loginWithEmail(email, password) {
-  const result = await signInWithEmailAndPassword(auth, email, password);
+  const a = requireAuth();
+  const result = await signInWithEmailAndPassword(a, email, password);
   return result.user;
 }
 
 export async function registerWithEmail(email, password, displayName) {
-  const result = await createUserWithEmailAndPassword(auth, email, password);
+  const a = requireAuth();
+  const result = await createUserWithEmailAndPassword(a, email, password);
   if (displayName && result.user) {
     await updateProfile(result.user, { displayName });
   }
@@ -52,10 +84,15 @@ export async function registerWithEmail(email, password, displayName) {
 }
 
 export async function logoutUser() {
+  if (!auth) return;
   await signOut(auth);
 }
 
 export function subscribeToAuthChanges(callback) {
+  if (!auth) {
+    callback(null);
+    return () => {};
+  }
   return onAuthStateChanged(auth, callback);
 }
 
@@ -66,7 +103,7 @@ const COLLECTION_NAME = "buffet_users";
  * Zapisuje kompletny stan portfela i ustawień użytkownika w Google Cloud Firestore.
  */
 export async function saveUserDataToFirebase(userId, userData) {
-  if (!userId || !db) return { success: false, error: "Brak identyfikatora użytkownika" };
+  if (!userId || !db) return { success: false, error: "Tryb lokalny (brak konfiguracji Firebase)" };
   try {
     const userDocRef = doc(db, COLLECTION_NAME, userId);
     const payload = {
